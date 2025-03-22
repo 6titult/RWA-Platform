@@ -107,19 +107,32 @@ export default function TestInterface() {
         tokenContract: new Contract(
           TOKEN_ADDRESS,
           [
+            'function name() view returns (string)',
+            'function symbol() view returns (string)',
             'function getTokenIdCounter() view returns (uint256)',
             'function getAssetData(uint256) view returns (uint256,address,uint256,uint256)',
             'function mintAsset(address,string,string,uint256)',
             'function balanceOf(address) view returns (uint256)',
             'function ownerOf(uint256) view returns (address)',
             'function tokenURI(uint256) view returns (string)',
-            'function totalSupply() view returns (uint256)'
+            'function totalSupply() view returns (uint256)',
+            'function approve(address to, uint256 tokenId)',
+            'function getApproved(uint256 tokenId) view returns (address)',
+            'function isApprovedForAll(address owner, address operator) view returns (bool)',
+            'function setApprovalForAll(address operator, bool approved)',
+            'function safeTransferFrom(address from, address to, uint256 tokenId)'
           ],
           signer
         ),
         marketplaceContract: new Contract(
           MARKETPLACE_ADDRESS,
-          ['function listAsset(uint256,uint256)'],
+          [
+            'function listAsset(uint256,uint256)',
+            'function buyAsset(uint256) payable',
+            'function listings(uint256) view returns (address seller, uint256 price, bool isActive)',
+            'function feePercentage() view returns (uint256)',
+            'function rwaToken() view returns (address)'
+          ],
           signer
         )
       };
@@ -160,7 +173,7 @@ export default function TestInterface() {
     const verifyContracts = async () => {
       const { tokenContract } = await initializeContracts();
       console.log("Token name:", await tokenContract.name());
-      console.log("Total supply:", await tokenContract.totalSupply());
+      console.log("Total supply:", await tokenContract.getTokenIdCounter());
     }
     verifyContracts();
   }, []);
@@ -301,7 +314,7 @@ export default function TestInterface() {
     setLoading(true);
     try {
       console.log('Initializing contracts...');
-      const { tokenContract } = await initializeContracts();
+      const { tokenContract, marketplaceContract } = await initializeContracts();
       const totalTokens = await tokenContract.getTokenIdCounter();
       console.log(`Total tokens to check: ${totalTokens}`);
       
@@ -315,29 +328,33 @@ export default function TestInterface() {
         try {
           console.log(`Checking token ${i}...`);
           const owner = await tokenContract.ownerOf(i);
-          if (owner.toLowerCase() === address.toLowerCase()) {
-            console.log(`Found owned token ${i}`);
-            const [legalDocHash, auditor, valuation, auditDate] = await tokenContract.getAssetData(i);
-            const uri = await tokenContract.tokenURI(i);
-            
-            assetsList.push({
-              id: i,
-              owner,
-              uri,
-              legalDocHash,
-              valuation: ethers.formatUnits(valuation, 18),
-              auditor,
-              auditDate: new Date(Number(auditDate) * 1000).toLocaleString()
-            });
-            console.log(`Added token ${i} to assets list`);
-          }
+          const [legalDocHash, auditor, valuation, auditDate] = await tokenContract.getAssetData(i);
+          const uri = await tokenContract.tokenURI(i);
+          
+          // Check if asset is listed
+          const listing = await marketplaceContract.listings(i);
+          const isListed = listing.isActive;
+          const price = isListed ? ethers.formatEther(listing.price) : undefined;
+          
+          assetsList.push({
+            id: i,
+            owner,
+            uri,
+            legalDocHash,
+            valuation: ethers.formatUnits(valuation, 18),
+            auditor,
+            auditDate: new Date(Number(auditDate) * 1000).toLocaleString(),
+            listed: isListed,
+            price
+          });
+          console.log(`Added token ${i} to assets list`);
         } catch (error) {
           console.log(`Token ${i} not accessible or doesn't exist:`, error instanceof Error ? error.message : 'Unknown error');
           continue;
         }
       }
 
-      console.log(`Found ${assetsList.length} owned assets`);
+      console.log(`Found ${assetsList.length} assets`);
       setAssets(assetsList);
       setResults([...results, {
         test: 'fetchAssets',
@@ -355,6 +372,120 @@ export default function TestInterface() {
         timestamp: Date.now(),
         error: error instanceof Error ? error.message : 'Unknown error occurred',
         details: 'Failed to fetch assets. Check console for details.'
+      }]);
+    }
+    setLoading(false);
+  };
+
+  // Add new function to handle token approval
+  const handleApproveToken = async (tokenId: number) => {
+    if (!signer) {
+      alert('Please connect wallet first!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { tokenContract } = await initializeContracts();
+      
+      // Approve marketplace to transfer the token
+      const tx = await tokenContract.approve(MARKETPLACE_ADDRESS, tokenId);
+      await tx.wait();
+      
+      setResults(prev => [...prev, {
+        test: 'approveToken',
+        status: 'success',
+        timestamp: Date.now(),
+        details: `Token ${tokenId} approved for marketplace`
+      }]);
+    } catch (error) {
+      console.error('Error approving token:', error);
+      setResults(prev => [...prev, {
+        test: 'approveToken',
+        status: 'error',
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      }]);
+    }
+    setLoading(false);
+  };
+
+  // Update handleListAsset to check and request approval first
+  const handleListAsset = async (tokenId: number) => {
+    if (!signer) {
+      alert('Please connect wallet first!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { tokenContract, marketplaceContract } = await initializeContracts();
+      
+      // Check if marketplace is approved
+      const approvedAddress = await tokenContract.getApproved(tokenId);
+      if (approvedAddress !== MARKETPLACE_ADDRESS) {
+        // Request approval first
+        await handleApproveToken(tokenId);
+      }
+      
+      const price = ethers.parseEther("100"); // Default price of 100 ETH
+      const tx = await marketplaceContract.listAsset(tokenId, price);
+      await tx.wait();
+      
+      // Refresh assets after listing
+      await fetchAssets();
+      
+      setResults(prev => [...prev, {
+        test: 'listAsset',
+        status: 'success',
+        timestamp: Date.now(),
+        details: `Asset ${tokenId} listed successfully`
+      }]);
+    } catch (error) {
+      console.error('Error listing asset:', error);
+      setResults(prev => [...prev, {
+        test: 'listAsset',
+        status: 'error',
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      }]);
+    }
+    setLoading(false);
+  };
+
+  // Add new function to handle asset purchase
+  const handlePurchaseAsset = async (tokenId: number) => {
+    if (!signer) {
+      alert('Please connect wallet first!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { marketplaceContract } = await initializeContracts();
+      const listing = await marketplaceContract.listings(tokenId);
+      
+      const tx = await marketplaceContract.buyAsset(tokenId, {
+        value: listing.price
+      });
+      await tx.wait();
+      
+      // Refresh assets after purchase
+      await fetchAssets();
+      
+      setResults(prev => [...prev, {
+        test: 'purchaseAsset',
+        status: 'success',
+        timestamp: Date.now(),
+        details: `Asset ${tokenId} purchased successfully`
+      }]);
+    } catch (error) {
+      console.error('Error purchasing asset:', error);
+      setResults(prev => [...prev, {
+        test: 'purchaseAsset',
+        status: 'error',
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       }]);
     }
     setLoading(false);
@@ -454,13 +585,6 @@ export default function TestInterface() {
           Mint Asset
         </button>
         <button 
-          className="btn btn-warning me-2" 
-          onClick={() => runTest('list')}
-          disabled={loading}
-        >
-          List Last Asset
-        </button>
-        <button 
           className="btn btn-info me-2" 
           onClick={fetchAssets}
           disabled={loading}
@@ -483,19 +607,56 @@ export default function TestInterface() {
                   <th>Legal Doc Hash</th>
                   <th>Valuation</th>
                   <th>Auditor</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {assets.map((asset) => (
-                  <tr key={asset.id.toString()}>
-                    <td>{asset.id}</td>
-                    <td>{asset.owner.slice(0,6)}...{asset.owner.slice(-4)}</td>
-                    <td>{asset.uri}</td>
-                    <td>{asset.legalDocHash}</td>
-                    <td>{asset.valuation}</td>
-                    <td>{asset.auditor.slice(0,6)}...{asset.auditor.slice(-4)}</td>
-                  </tr>
-                ))}
+                {assets.map((asset) => {
+                  const isOwner = account && asset.owner.toLowerCase() === account.toLowerCase();
+                  return (
+                    <tr key={asset.id.toString()}>
+                      <td>{asset.id}</td>
+                      <td>{asset.owner.slice(0,6)}...{asset.owner.slice(-4)}</td>
+                      <td>{asset.uri}</td>
+                      <td>{asset.legalDocHash}</td>
+                      <td>{asset.valuation}</td>
+                      <td>{asset.auditor.slice(0,6)}...{asset.auditor.slice(-4)}</td>
+                      <td>
+                        {asset.listed ? (
+                          <span className="badge bg-warning">Listed</span>
+                        ) : (
+                          <span className="badge bg-success">Not Listed</span>
+                        )}
+                      </td>
+                      <td>
+                        {isOwner ? (
+                          asset.listed ? (
+                            <span className="text-muted">Owner</span>
+                          ) : (
+                            <button
+                              className="btn btn-warning btn-sm"
+                              onClick={() => handleListAsset(asset.id)}
+                              disabled={loading}
+                            >
+                              List Asset
+                            </button>
+                          )
+                        ) : (
+                          asset.listed && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handlePurchaseAsset(asset.id)}
+                              disabled={loading}
+                            >
+                              Purchase
+                            </button>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
