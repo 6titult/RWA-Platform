@@ -8,20 +8,36 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title RWAToken
  * @dev A smart contract for tokenizing Real World Assets (RWA) as NFTs
- * Inherits from ERC721URIStorage for NFT metadata storage and Ownable for access control
+ * This contract allows for the creation and management of tokenized real-world assets,
+ * such as real estate, commodities, or financial instruments.
+ * 
+ * Key features:
+ * - ERC721 standard implementation for NFT functionality
+ * - URI storage for metadata
+ * - Access control for administrative functions
+ * - Asset registry for storing detailed asset information
+ * 
+ * @notice This contract inherits from:
+ * - ERC721URIStorage: Provides NFT functionality with URI storage
+ * - Ownable: Provides access control for administrative functions
  */
 contract RWAToken is ERC721URIStorage, Ownable {
     // Counter for generating unique token IDs
+    // Increments each time a new token is minted
     uint256 private _tokenIdCounter;
-    // Mapping to store additional asset data (if needed)
+
+    // Mapping to store additional asset data
+    // This is a legacy mapping that can be used for storing extra data if needed
     mapping(uint256 => string) private _assetData;
 
     /**
      * @dev Structure to store detailed information about each tokenized asset
-     * @param legalDocumentHash IPFS or other hash of the legal documentation
-     * @param auditor Address of the entity that audited/verified the asset
-     * @param valuation Current valuation of the asset in base currency
-     * @param auditDate Timestamp when the asset was last audited
+     * This structure contains all the metadata and verification data for a real-world asset
+     * 
+     * @param legalDocumentHash - Hash of the legal documents proving ownership and rights
+     * @param auditor - Address of the entity that verified the asset's authenticity
+     * @param valuation - Current market value of the asset in base currency (wei)
+     * @param auditDate - Timestamp of the most recent audit/verification
      */
     struct AssetInfo {
         string legalDocumentHash;
@@ -31,27 +47,39 @@ contract RWAToken is ERC721URIStorage, Ownable {
     }
 
     // Mapping from token ID to asset information
+    // Stores the complete asset information for each tokenized asset
     mapping(uint256 => AssetInfo) public assetRegistry;
 
     /**
      * @dev Constructor initializes the ERC721 token with name and symbol
-     * Also sets the contract owner using OpenZeppelin's Ownable
+     * Sets up the basic NFT parameters and initializes the contract owner
+     * 
+     * @param name - The name of the token (e.g., "Real World Asset Token")
+     * @param symbol - The symbol of the token (e.g., "RWAT")
      */
     constructor(
-    string memory name,
-    string memory symbol
+        string memory name,
+        string memory symbol
     ) 
         ERC721(name, symbol) 
-        Ownable(msg.sender) // Explicit owner initialization
+        Ownable(msg.sender) // Explicit owner initialization for OpenZeppelin v5
     {}
 
     /**
      * @dev Mints a new RWA token with associated metadata and asset information
-     * @param to Address that will receive the minted token
-     * @param metadataURI IPFS URI containing the token's metadata
-     * @param legalDocHash Hash of legal documents associated with the asset
-     * @param valuation Initial valuation of the asset
-     * @return tokenId The ID of the newly minted token
+     * This function can only be called by the contract owner
+     * 
+     * @param to - Address that will receive the minted token
+     * @param metadataURI - IPFS URI containing the token's metadata (JSON)
+     * @param legalDocHash - Hash of legal documents associated with the asset
+     * @param valuation - Initial valuation of the asset in base currency
+     * @return tokenId - The ID of the newly minted token
+     * 
+     * @notice The function:
+     * 1. Generates a new unique token ID
+     * 2. Mints the token to the specified address
+     * 3. Sets the token's metadata URI
+     * 4. Stores the asset information in the registry
      */
     function mintAsset(
         address to,
@@ -61,7 +89,7 @@ contract RWAToken is ERC721URIStorage, Ownable {
     ) external onlyOwner returns (uint256) {
         uint256 tokenId = _tokenIdCounter++;
         _safeMint(to, tokenId);
-        _setTokenURI(tokenId, metadataURI);  // Now available via ERC721URIStorage
+        _setTokenURI(tokenId, metadataURI);
         
         // Store the asset information in the registry
         assetRegistry[tokenId] = AssetInfo({
@@ -75,8 +103,20 @@ contract RWAToken is ERC721URIStorage, Ownable {
     }
 
     /**
+     * @dev Returns the current token ID counter
+     * This can be used to determine the total number of tokens minted
+     * 
+     * @return The current value of the token ID counter
+     */
+    function getTokenIdCounter() public view returns (uint256) {
+        return _tokenIdCounter;
+    }
+
+    /**
      * @dev Override of the tokenURI function from ERC721URIStorage
-     * @param tokenId The ID of the token to query
+     * Returns the URI containing the token's metadata
+     * 
+     * @param tokenId - The ID of the token to query
      * @return The URI containing the token's metadata
      */
     function tokenURI(uint256 tokenId)
@@ -90,7 +130,9 @@ contract RWAToken is ERC721URIStorage, Ownable {
 
     /**
      * @dev Verifies the current owner of a token
-     * @param tokenId The ID of the token to check
+     * This is a convenience function that wraps the ERC721 ownerOf function
+     * 
+     * @param tokenId - The ID of the token to check
      * @return The address of the token owner
      */
     function verifyOwnership(uint256 tokenId) public view returns (address) {
@@ -99,7 +141,9 @@ contract RWAToken is ERC721URIStorage, Ownable {
 
     /**
      * @dev Retrieves the detailed information about an asset
-     * @param tokenId The ID of the token to query
+     * Returns the complete AssetInfo struct for a given token ID
+     * 
+     * @param tokenId - The ID of the token to query
      * @return AssetInfo struct containing the asset's details
      */
     function getAssetData(uint256 tokenId) public view returns (AssetInfo memory) {

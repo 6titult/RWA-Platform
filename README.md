@@ -16,6 +16,16 @@ A decentralized platform for tokenizing and trading Real World Assets (RWA) on t
   - Platform fee mechanism (configurable)
   - Secure transfer of ownership
 
+- **User Interface**:
+  - Real-time wallet connection with MetaMask
+  - Interactive asset management dashboard
+  - Detailed transaction history and status tracking
+  - Asset listing and minting controls
+  - Responsive tables for asset display
+  - Comprehensive error handling and feedback
+  - Loading states and progress indicators
+  - Transaction hash links for blockchain verification
+
 ## Smart Contracts
 
 ### RWAToken.sol
@@ -37,6 +47,8 @@ A decentralized platform for tokenizing and trading Real World Assets (RWA) on t
 - OpenZeppelin Contracts
 - TypeScript for Testing
 - Ethers.js
+- React for Frontend
+- Bootstrap for UI Components
 
 ## Getting Started
 
@@ -45,6 +57,7 @@ A decentralized platform for tokenizing and trading Real World Assets (RWA) on t
 - Node.js >= 14.0.0
 - npm or yarn
 - Hardhat
+- MetaMask browser extension
 
 ### Installation
 
@@ -83,9 +96,18 @@ npx hardhat run scripts/deploy.ts --network [network-name]
 
 1. Deploy the RWAToken contract with desired name and symbol
 2. Deploy the Marketplace contract with the RWAToken address and fee percentage
-3. Mint new assets using the RWAToken contract
-4. List assets for sale on the marketplace
-5. Users can purchase listed assets
+3. Start the frontend application:
+```bash
+cd RWA-Marketplace
+npm start
+```
+4. Connect your MetaMask wallet to the local network (chainId: 31337)
+5. Use the interface to:
+   - Mint new assets
+   - List assets for sale
+   - View your owned assets
+   - Monitor transaction status
+   - Track operation history
 
 ## Development
 
@@ -103,6 +125,10 @@ npx hardhat node
 
 # Deploy to local network
 npx hardhat run scripts/deploy.ts --network localhost
+
+# Start frontend development server
+cd RWA-Marketplace
+npm start
 ```
 
 ## Security
@@ -111,6 +137,8 @@ npx hardhat run scripts/deploy.ts --network localhost
 - Access control mechanisms in place
 - Safe transfer implementations
 - Platform fees handled securely
+- Frontend implements proper error handling and user feedback
+- Secure wallet connection handling
 
 ## License
 

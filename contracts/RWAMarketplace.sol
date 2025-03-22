@@ -98,6 +98,4 @@ contract RWAMarketplace {
 
         emit AssetSold(tokenId, msg.sender, listing.price);
     }
-
-    // Add functions for auctions, offers, etc.
 }
