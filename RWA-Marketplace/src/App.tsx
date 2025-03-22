@@ -604,10 +604,9 @@ export default function TestInterface() {
                   <th>ID</th>
                   <th>Owner</th>
                   <th>URI</th>
-                  <th>Legal Doc Hash</th>
-                  <th>Valuation</th>
                   <th>Auditor</th>
                   <th>Status</th>
+                  <th>Price</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -619,14 +618,19 @@ export default function TestInterface() {
                       <td>{asset.id}</td>
                       <td>{asset.owner.slice(0,6)}...{asset.owner.slice(-4)}</td>
                       <td>{asset.uri}</td>
-                      <td>{asset.legalDocHash}</td>
-                      <td>{asset.valuation}</td>
                       <td>{asset.auditor.slice(0,6)}...{asset.auditor.slice(-4)}</td>
                       <td>
                         {asset.listed ? (
                           <span className="badge bg-warning">Listed</span>
                         ) : (
                           <span className="badge bg-success">Not Listed</span>
+                        )}
+                      </td>
+                      <td>
+                        {asset.listed ? (
+                          <span className="text-primary fw-bold">{asset.price} ETH</span>
+                        ) : (
+                          <span className="text-muted">-</span>
                         )}
                       </td>
                       <td>
