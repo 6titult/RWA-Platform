@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { BrowserProvider, Contract, parseUnits } from 'ethers';
+import { BrowserProvider, Contract, parseUnits, formatEther } from 'ethers';
 
 // Declare ethereum property on window object
 declare global {
@@ -83,6 +83,7 @@ export default function TestInterface() {
   const [signer, setSigner] = useState<ethers.Signer|null>(null);
   const [account, setAccount] = useState<string|null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [balance, setBalance] = useState<string | null>(null);
 
   /**
    * Initializes Web3 provider and contract instances
@@ -153,6 +154,12 @@ export default function TestInterface() {
     }
     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
     setAccount(accounts[0]);
+    
+    // Fetch balance after connecting wallet
+    const provider = new BrowserProvider(window.ethereum);
+    const balance = await provider.getBalance(accounts[0]);
+    setBalance(formatEther(balance)); // Set balance in ETH format
+
     await initializeContracts();
   }, [initializeContracts]);
 
@@ -573,6 +580,11 @@ export default function TestInterface() {
         >
           {account ? `Connected: ${account.slice(0,6)}...${account.slice(-4)}` : 'Connect Wallet'}
         </button>
+      </div>
+
+      {/* Display balance */}
+      <div className="mb-4">
+        <h4>Wallet Balance: {balance ? `${Number(balance).toLocaleString()} ETH` : 'Not connected'}</h4>
       </div>
 
       {/* Test action buttons */}
