@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { BrowserProvider, Contract, parseUnits, formatEther } from 'ethers';
+import { Tooltip, OverlayTrigger } from 'react-bootstrap';
 
 // Declare ethereum property on window object
 declare global {
@@ -84,6 +85,10 @@ export default function TestInterface() {
   const [account, setAccount] = useState<string|null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [balance, setBalance] = useState<string | null>(null);
+
+  // Add state for sorting and filtering
+  const [sortBy, setSortBy] = useState<'id' | 'owner' | 'price'>('id');
+  const [filterListed, setFilterListed] = useState<boolean | null>(null);
 
   /**
    * Initializes Web3 provider and contract instances
@@ -498,6 +503,14 @@ export default function TestInterface() {
     setLoading(false);
   };
 
+  // Function to sort assets
+  const sortedAssets = [...assets].sort((a, b) => {
+    if (sortBy === 'price') {
+      return (parseFloat(a.price || '0') - parseFloat(b.price || '0'));
+    }
+    return a[sortBy] > b[sortBy] ? 1 : -1;
+  }).filter(asset => filterListed === null || asset.listed === filterListed);
+
   /**
    * Renders the test results in a formatted table
    * @returns JSX element containing the results table
@@ -516,46 +529,48 @@ export default function TestInterface() {
             </tr>
           </thead>
           <tbody>
-            {results.map((result, index) => (
-              <tr key={index} className={result.status === 'error' ? 'table-danger' : ''}>
-                <td>{result.test}</td>
-                <td>
-                  {result.status === 'success' && '✅ Success'}
-                  {result.status === 'error' && '❌ Error'}
-                  {result.status === 'pending' && '⏳ Pending'}
-                </td>
-                <td>
-                  {result.timestamp && new Date(result.timestamp).toLocaleString()}
-                </td>
-                <td>
-                  {result.error && (
-                    <div className="text-danger">
-                      <strong>Error:</strong> {result.error}
-                    </div>
-                  )}
-                  {result.details && (
-                    <div className="text-info">
-                      <strong>Details:</strong> {result.details}
-                    </div>
-                  )}
-                  {result.test === 'mint' && result.status === 'success' && (
-                    <div className="text-success">
-                      <strong>Asset Minted Successfully</strong>
-                    </div>
-                  )}
-                  {result.test === 'list' && result.status === 'success' && (
-                    <div className="text-success">
-                      <strong>Asset Listed Successfully</strong>
-                    </div>
-                  )}
-                  {result.test === 'fetchAssets' && result.status === 'success' && (
-                    <div className="text-success">
-                      <strong>Assets Refreshed Successfully</strong>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {results
+              .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) // Sort by timestamp in descending order
+              .map((result, index) => (
+                <tr key={index} className={result.status === 'error' ? 'table-danger' : ''}>
+                  <td>{result.test}</td>
+                  <td>
+                    {result.status === 'success' && '✅ Success'}
+                    {result.status === 'error' && '❌ Error'}
+                    {result.status === 'pending' && '⏳ Pending'}
+                  </td>
+                  <td>
+                    {result.timestamp && new Date(result.timestamp).toLocaleString()}
+                  </td>
+                  <td>
+                    {result.error && (
+                      <div className="text-danger">
+                        <strong>Error:</strong> {result.error}
+                      </div>
+                    )}
+                    {result.details && (
+                      <div className="text-info">
+                        <strong>Details:</strong> {result.details}
+                      </div>
+                    )}
+                    {result.test === 'mint' && result.status === 'success' && (
+                      <div className="text-success">
+                        <strong>Asset Minted Successfully</strong>
+                      </div>
+                    )}
+                    {result.test === 'list' && result.status === 'success' && (
+                      <div className="text-success">
+                        <strong>Asset Listed Successfully</strong>
+                      </div>
+                    )}
+                    {result.test === 'fetchAssets' && result.status === 'success' && (
+                      <div className="text-success">
+                        <strong>Assets Refreshed Successfully</strong>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
@@ -568,18 +583,23 @@ export default function TestInterface() {
       {/* Header with loading indicator */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2>RWA Test Interface</h2>
-        {loading && <div className="spinner-border text-primary" role="status" />}
+        {loading && <div className="spinner-border text-primary" role="status" aria-hidden="true"><span className="visually-hidden">Loading...</span></div>}
       </div>
 
       {/* Wallet connection button */}
       <div className="mb-4">
-        <button 
-          className="btn btn-primary" 
-          onClick={connectWallet}
-          disabled={loading}
+        <OverlayTrigger
+          placement="top"
+          overlay={<Tooltip id="tooltip-top">Connect your wallet to interact with the marketplace</Tooltip>}
         >
-          {account ? `Connected: ${account.slice(0,6)}...${account.slice(-4)}` : 'Connect Wallet'}
-        </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={connectWallet}
+            disabled={loading}
+          >
+            {account ? `Connected: ${account.slice(0,6)}...${account.slice(-4)}` : 'Connect Wallet'}
+          </button>
+        </OverlayTrigger>
       </div>
 
       {/* Display balance */}
@@ -606,9 +626,19 @@ export default function TestInterface() {
       </div>
 
       {/* Assets display table */}
-      {assets.length > 0 && (
+      {sortedAssets.length > 0 && (
         <div className="mb-4">
           <h3>Assets</h3>
+          <div className="mb-2">
+            <button className="btn btn-secondary me-2" onClick={() => setFilterListed(true)}>Show Listed</button>
+            <button className="btn btn-secondary me-2" onClick={() => setFilterListed(false)}>Show Not Listed</button>
+            <button className="btn btn-secondary me-2" onClick={() => setFilterListed(null)}>Show All</button>
+            <select onChange={(e) => setSortBy(e.target.value as 'id' | 'owner' | 'price')} className="form-select">
+              <option value="id">Sort by ID</option>
+              <option value="owner">Sort by Owner</option>
+              <option value="price">Sort by Price</option>
+            </select>
+          </div>
           <div className="table-responsive">
             <table className="table table-striped">
               <thead>
@@ -623,7 +653,7 @@ export default function TestInterface() {
                 </tr>
               </thead>
               <tbody>
-                {assets.map((asset) => {
+                {sortedAssets.map((asset) => {
                   const isOwner = account && asset.owner.toLowerCase() === account.toLowerCase();
                   return (
                     <tr key={asset.id.toString()}>
