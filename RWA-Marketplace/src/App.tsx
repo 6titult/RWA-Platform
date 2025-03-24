@@ -77,6 +77,14 @@ interface JsonRpcError {
   };
 }
 
+// Add CSS classes for table styling
+const tableStyles = {
+  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  borderRadius: '8px',
+  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+  marginTop: '20px',
+};
+
 export default function TestInterface() {
   // State management for test results, loading state, signer, and connected account
   const [results, setResults] = useState<TestResult[]>([]);
@@ -518,7 +526,7 @@ export default function TestInterface() {
   const renderResults = () => (
     <div className="mt-4">
       <h3>Test Results</h3>
-      <div className="table-responsive">
+      <div className="table-responsive" style={tableStyles}>
         <table className="table table-bordered">
           <thead className="table-dark">
             <tr>
@@ -530,7 +538,7 @@ export default function TestInterface() {
           </thead>
           <tbody>
             {results
-              .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)) // Sort by timestamp in descending order
+              .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
               .map((result, index) => (
                 <tr key={index} className={result.status === 'error' ? 'table-danger' : ''}>
                   <td>{result.test}</td>
@@ -589,8 +597,8 @@ export default function TestInterface() {
       {/* Wallet connection button */}
       <div className="mb-4">
         <OverlayTrigger
-          placement="top"
-          overlay={<Tooltip id="tooltip-top">Connect your wallet to interact with the marketplace</Tooltip>}
+          placement="right"
+          overlay={<Tooltip id="tooltip-right">Connect your wallet to interact with the marketplace</Tooltip>}
         >
           <button 
             className="btn btn-primary" 
@@ -639,7 +647,7 @@ export default function TestInterface() {
               <option value="price">Sort by Price</option>
             </select>
           </div>
-          <div className="table-responsive">
+          <div className="table-responsive" style={tableStyles}>
             <table className="table table-striped">
               <thead>
                 <tr>

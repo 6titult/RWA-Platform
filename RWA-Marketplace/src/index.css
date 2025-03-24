@@ -23,11 +23,26 @@ a:hover {
 }
 
 body {
+  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background-size: 400% 400%;
+  animation: gradient 15s ease infinite;
+  height: 100vh;
   margin: 0;
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  justify-content: center;
+  align-items: center;
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 h1 {
@@ -64,5 +79,46 @@ button:focus-visible {
   }
   button {
     background-color: #f9f9f9;
+  }
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  body {
+    padding: 10px; /* Add padding for smaller screens */
+  }
+
+  h1 {
+    font-size: 2em; /* Reduce font size for smaller screens */
+  }
+
+  .container {
+    width: 100%; /* Ensure container takes full width */
+    padding: 0 10px; /* Add padding to container */
+  }
+
+  .table-responsive {
+    overflow-x: auto; /* Allow horizontal scrolling for tables */
+  }
+
+  .btn {
+    width: 100%; /* Make buttons full width on smaller screens */
+    margin-bottom: 10px; /* Add margin between buttons */
+  }
+
+  .form-select {
+    width: 100%; /* Make select elements full width */
+    margin-bottom: 10px; /* Add margin below select elements */
+  }
+}
+
+/* Additional styles for very small screens */
+@media (max-width: 480px) {
+  h1 {
+    font-size: 1.5em; /* Further reduce font size for very small screens */
+  }
+
+  .table {
+    font-size: 0.9em; /* Reduce font size for table content */
   }
 }
