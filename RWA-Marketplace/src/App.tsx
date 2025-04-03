@@ -14,13 +14,15 @@ declare global {
   interface Window {
     ethereum?: {
       request: (args: { method: string; params?: unknown[] }) => Promise<string[]>;
+      on: (event: string, callback: (params: unknown) => void) => void;
+      removeListener: (event: string, callback: (params: unknown) => void) => void;
     };
   }
 }
 
 // Contract addresses for the deployed RWA Token and Marketplace contracts
-const TOKEN_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-const MARKETPLACE_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+const TOKEN_ADDRESS = "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
+const MARKETPLACE_ADDRESS = "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
 
 /**
  * Interface defining the structure of test results
@@ -105,18 +107,19 @@ export default function TestInterface() {
    */
   const initializeContracts = useCallback(async () => {
     try {
-      if (!window.ethereum) throw new Error('Wallet non détectée');
-      
+      if (!window.ethereum) throw new Error('Wallet not detected');
+
       const provider = new BrowserProvider(window.ethereum);
       const network = await provider.getNetwork();
-      
-      if (network.chainId !== 31337n) {
-        throw new Error('Connectez-vous au réseau Hardhat (chainId: 31337)');
+
+      // Update chainId check for Sepolia
+      if (network.chainId !== 11155111n) {
+        throw new Error('Please connect to Sepolia testnet');
       }
 
       const signer = await provider.getSigner();
       setSigner(signer);
-      
+
       return {
         tokenContract: new Contract(
           TOKEN_ADDRESS,
@@ -161,30 +164,142 @@ export default function TestInterface() {
    * @throws Error if MetaMask is not installed
    */
   const connectWallet = useCallback(async () => {
-    if (!window.ethereum) {
-      alert('Please install MetaMask!');
-      return;
-    }
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    setAccount(accounts[0]);
-    
-    // Fetch balance after connecting wallet
-    const provider = new BrowserProvider(window.ethereum);
-    const balance = await provider.getBalance(accounts[0]);
-    setBalance(formatEther(balance)); // Set balance in ETH format
+    try {
+      if (!window.ethereum) {
+        alert('Please install MetaMask!');
+        return;
+      }
 
-    await initializeContracts();
+      setLoading(true);
+
+      // Request account access
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts'
+      });
+
+      // Verify we're on the correct network (Sepolia)
+      const provider = new BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
+
+      if (network.chainId !== 11155111n) {
+        // Request network switch to Sepolia
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0xaa36a7' }], // Sepolia chainId in hex
+          });
+        } catch (switchError) {
+          if (typeof switchError === 'object' && switchError && 'code' in switchError) {
+            // If the network isn't added, add it
+            if (switchError.code === 4902) {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: '0xaa36a7',
+                  chainName: 'Sepolia',
+                  nativeCurrency: {
+                    name: 'ETH',
+                    symbol: 'ETH',
+                    decimals: 18
+                  },
+                  rpcUrls: ['https://eth-sepolia.public.blastapi.io'],
+                  blockExplorerUrls: ['https://sepolia.etherscan.io']
+                }]
+              });
+            } else {
+              throw switchError;
+            }
+          }
+        }
+      }
+
+      // Get the signer
+      const signer = await provider.getSigner();
+      setSigner(signer);
+      setAccount(accounts[0]);
+
+      // Fetch and set balance
+      const balance = await provider.getBalance(accounts[0]);
+      setBalance(formatEther(balance));
+
+      // Initialize contracts
+      await initializeContracts();
+
+      if ('on' in window.ethereum && window.ethereum.on) {
+        window.ethereum.on('accountsChanged', (accounts: unknown) => {
+          handleAccountsChanged(accounts as string[]);
+        });
+        window.ethereum.on('chainChanged', () => {
+          handleChainChanged();
+        });
+      }
+
+    } catch (error) {
+      console.error('Error connecting wallet:', error);
+      alert('Failed to connect wallet. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }, [initializeContracts]);
+
+  // Handle account changes
+  const handleAccountsChanged = async (accounts: string[]) => {
+    if (accounts.length === 0) {
+      // User disconnected their wallet
+      setAccount(null);
+      setSigner(null);
+      setBalance(null);
+    } else {
+      // Update with new account
+      setAccount(accounts[0]);
+      if (window.ethereum) {
+        const provider = new BrowserProvider(window.ethereum);
+        const balance = await provider.getBalance(accounts[0]);
+        setBalance(formatEther(balance));
+        const signer = await provider.getSigner();
+        setSigner(signer);
+      }
+    }
+  };
+
+  // Handle network changes
+  const handleChainChanged = () => {
+    // Reload the page when network changes
+    window.location.reload();
+  };
+
+  // Cleanup event listeners when component unmounts
+  useEffect(() => {
+    return () => {
+      if (window.ethereum) {
+        if ('removeListener' in window.ethereum && window.ethereum.removeListener) {
+          window.ethereum.removeListener('accountsChanged', (params: unknown) => handleAccountsChanged(params as string[]));
+        }
+        if ('removeListener' in window.ethereum && window.ethereum.removeListener) {
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
+      }
+    };
+  }, []);
 
   // Auto-connect to wallet if previously connected
   useEffect(() => {
     const checkConnection = async () => {
       if (!window.ethereum) return;
-      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-      if (accounts.length > 0) {
-        await connectWallet();
+
+      try {
+        const accounts = await window.ethereum.request({
+          method: 'eth_accounts'
+        });
+
+        if (accounts.length > 0) {
+          await connectWallet();
+        }
+      } catch (error) {
+        console.error('Error checking wallet connection:', error);
       }
     };
+
     checkConnection();
   }, [connectWallet]);
 
@@ -201,7 +316,7 @@ export default function TestInterface() {
   /**
    * Executes blockchain operations based on the test name
    * @param testName - Name of the test to execute ('mint', 'list', or 'verify')
-   * 
+   *
    * Test Flow:
    * 1. Check if wallet is connected
    * 2. Initialize contracts
@@ -215,10 +330,10 @@ export default function TestInterface() {
       console.log('No signer available, test cancelled');
       return;
     }
-  
+
     setLoading(true);
     const startTime = Date.now();
-    
+
     // Add pending status
     setResults(prev => [...prev, {
       test: testName,
@@ -231,7 +346,7 @@ export default function TestInterface() {
       const { tokenContract, marketplaceContract } = await initializeContracts();
       const address = await signer.getAddress();
       console.log(`Connected address: ${address}`);
-      
+
       if (testName === 'mint') {
         console.log('Minting new asset...');
         // Mint Asset
@@ -249,15 +364,15 @@ export default function TestInterface() {
         // Get total tokens as BigInt
         const totalTokens = await tokenContract.getTokenIdCounter();
         console.log(`Total tokens: ${totalTokens}`);
-        
+
         // Convert to BigInt for arithmetic operations
         const tokenId = totalTokens - 1n;
         console.log(`Listing token ID: ${tokenId}`);
-        
+
         // Ensure price is handled as BigInt
         const price = parseUnits("100", 18);
         console.log(`Listing price: ${price}`);
-        
+
         // Execute listing
         const tx = await marketplaceContract.listAsset(
           tokenId,
@@ -265,12 +380,12 @@ export default function TestInterface() {
           { gasLimit: 1_000_000n }
         );
         console.log('List transaction sent:', tx.hash);
-        
+
         const receipt = await tx.wait();
         console.log('List transaction confirmed');
-      
+
         // Update result with success
-        setResults(prev => prev.map(r => 
+        setResults(prev => prev.map(r =>
           r.timestamp === startTime ? {
             ...r,
             status: 'success',
@@ -278,13 +393,13 @@ export default function TestInterface() {
           } : r
         ));
       }
-      
+
       console.log('Fetching updated assets...');
       await fetchAssets();
       console.log('Test completed successfully');
     } catch (error) {
       console.error('Transaction Failed:', error);
-  
+
       let errorMessage = 'Unknown error';
       if (error instanceof Error) {
         // For Hardhat revert messages
@@ -301,7 +416,7 @@ export default function TestInterface() {
         }
       }
 
-      setResults(prev => prev.map(r => 
+      setResults(prev => prev.map(r =>
         r.timestamp === startTime ? {
           ...r,
           status: 'error',
@@ -315,7 +430,7 @@ export default function TestInterface() {
   /**
    * Fetches all assets owned by the connected account
    * Displays them in a table format
-   * 
+   *
    * Flow:
    * 1. Check if wallet is connected
    * 2. Get total number of tokens
@@ -337,12 +452,12 @@ export default function TestInterface() {
       const { tokenContract, marketplaceContract } = await initializeContracts();
       const totalTokens = await tokenContract.getTokenIdCounter();
       console.log(`Total tokens to check: ${totalTokens}`);
-      
+
       const address = await signer.getAddress();
       console.log(`Fetching assets for address: ${address}`);
-      
+
       const assetsList: Asset[] = [];
-      
+
       // Iterate through all tokens to find owned assets
       for (let i = 0; i < totalTokens; i++) {
         try {
@@ -350,12 +465,12 @@ export default function TestInterface() {
           const owner = await tokenContract.ownerOf(i);
           const [legalDocHash, auditor, valuation, auditDate] = await tokenContract.getAssetData(i);
           const uri = await tokenContract.tokenURI(i);
-          
+
           // Check if asset is listed
           const listing = await marketplaceContract.listings(i);
           const isListed = listing.isActive;
           const price = isListed ? ethers.formatEther(listing.price) : undefined;
-          
+
           assetsList.push({
             id: i,
             owner,
@@ -383,7 +498,7 @@ export default function TestInterface() {
         txHash: undefined,
         details: `Found ${assetsList.length} assets. Last updated: ${new Date().toLocaleString()}`
       }]);
-      
+
     } catch (error) {
       console.error('Error fetching assets:', error);
       setResults([...results, {
@@ -407,11 +522,11 @@ export default function TestInterface() {
     setLoading(true);
     try {
       const { tokenContract } = await initializeContracts();
-      
+
       // Approve marketplace to transfer the token
       const tx = await tokenContract.approve(MARKETPLACE_ADDRESS, tokenId);
       await tx.wait();
-      
+
       setResults(prev => [...prev, {
         test: 'approveToken',
         status: 'success',
@@ -440,21 +555,21 @@ export default function TestInterface() {
     setLoading(true);
     try {
       const { tokenContract, marketplaceContract } = await initializeContracts();
-      
+
       // Check if marketplace is approved
       const approvedAddress = await tokenContract.getApproved(tokenId);
       if (approvedAddress !== MARKETPLACE_ADDRESS) {
         // Request approval first
         await handleApproveToken(tokenId);
       }
-      
+
       const price = ethers.parseEther("100"); // Default price of 100 ETH
       const tx = await marketplaceContract.listAsset(tokenId, price);
       await tx.wait();
-      
+
       // Refresh assets after listing
       await fetchAssets();
-      
+
       setResults(prev => [...prev, {
         test: 'listAsset',
         status: 'success',
@@ -484,15 +599,15 @@ export default function TestInterface() {
     try {
       const { marketplaceContract } = await initializeContracts();
       const listing = await marketplaceContract.listings(tokenId);
-      
+
       const tx = await marketplaceContract.buyAsset(tokenId, {
         value: listing.price
       });
       await tx.wait();
-      
+
       // Refresh assets after purchase
       await fetchAssets();
-      
+
       setResults(prev => [...prev, {
         test: 'purchaseAsset',
         status: 'success',
@@ -598,16 +713,37 @@ export default function TestInterface() {
       <div className="mb-4">
         <OverlayTrigger
           placement="right"
-          overlay={<Tooltip id="tooltip-right">Connect your wallet to interact with the marketplace</Tooltip>}
+          overlay={
+            <Tooltip id="tooltip-right">
+              {account
+                ? 'Connected to MetaMask'
+                : 'Connect your wallet to interact with the marketplace'}
+            </Tooltip>
+          }
         >
-          <button 
-            className="btn btn-primary" 
+          <button
+            className={`btn ${account ? 'btn-success' : 'btn-primary'}`}
             onClick={connectWallet}
             disabled={loading}
           >
-            {account ? `Connected: ${account.slice(0,6)}...${account.slice(-4)}` : 'Connect Wallet'}
+            {loading ? (
+              <span>
+                <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"/>
+                Connecting...
+              </span>
+            ) : account ? (
+              `Connected: ${account.slice(0,6)}...${account.slice(-4)}`
+            ) : (
+              'Connect Wallet'
+            )}
           </button>
         </OverlayTrigger>
+
+        {account && (
+          <div className="mt-2 text-success">
+            <small>Connected to Sepolia Network</small>
+          </div>
+        )}
       </div>
 
       {/* Display balance */}
@@ -617,15 +753,15 @@ export default function TestInterface() {
 
       {/* Test action buttons */}
       <div className="mb-4">
-        <button 
-          className="btn btn-success me-2" 
+        <button
+          className="btn btn-success me-2"
           onClick={() => runTest('mint')}
           disabled={loading}
         >
           Mint Asset
         </button>
-        <button 
-          className="btn btn-info me-2" 
+        <button
+          className="btn btn-info me-2"
           onClick={fetchAssets}
           disabled={loading}
         >
@@ -722,3 +858,20 @@ export default function TestInterface() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
