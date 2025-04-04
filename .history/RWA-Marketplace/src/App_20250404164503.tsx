@@ -55,7 +55,7 @@ const validateEnv = () => {
 // Run environment validation immediately
 validateEnv();
 
-// Window type declaration
+// TypeScript declaration for Ethereum window object
 declare global {
   interface Window {
     ethereum?: {
@@ -66,10 +66,15 @@ declare global {
   }
 }
 
+/** Maximum number of activities to display in the activity log */
 const MAX_ACTIVITIES = 10;
 
+/**
+ * Main Application Component
+ * Manages the entire application state and functionality
+ */
 function App() {
-  // State management using modern React patterns
+  // State management
   const [results, setResults] = useState<TestResult[]>([]);
   const [account, setAccount] = useState<string | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
@@ -78,7 +83,10 @@ function App() {
   const [, setFilterListed] = useState<boolean | null>(null);
   const hasLoadedAssetsRef = useRef(false);
 
-  // Use React Query for async state management
+  /**
+   * React Query hook for managing the Ethereum signer
+   * Provides a signer instance for contract interactions
+   */
   const { data: signer } = useQuery({
     queryKey: ['signer'],
     queryFn: async () => {
@@ -89,7 +97,10 @@ function App() {
     enabled: !!window.ethereum
   });
 
-  // Use React Query for assets
+  /**
+   * React Query hook for fetching and managing assets
+   * Retrieves all assets from the smart contract
+   */
   const { data: assets = [], refetch: refetchAssets } = useQuery({
     queryKey: ['assets', account],
     queryFn: async () => {
@@ -158,65 +169,46 @@ function App() {
     });
   }, [assets, account, signer]);
 
+  /**
+   * Adds a new unique result to the activity log
+   * @param prevResults - Previous activity results
+   * @param newResult - New result to add
+   * @returns Updated array of results
+   */
   const addUniqueResult = useCallback((prevResults: TestResult[], newResult: TestResult) => {
     const filteredResults = prevResults.filter(r => r.timestamp !== newResult.timestamp);
     const allResults = [...filteredResults, newResult];
     return allResults.slice(-MAX_ACTIVITIES);
   }, []);
 
-  const addActivityResult = useCallback((result: {
-    action: 'mint' | 'list' | 'buy' | 'approve';
-    status: 'pending' | 'success' | 'error';
-    assetId?: number;
-    amount?: string;
-    txHash?: string;
-    error?: string;
-    details?: string;
-  }) => {
-    setResults(prev => addUniqueResult(prev, {
-      ...result,
-      timestamp: Date.now()
-    }));
-  }, [addUniqueResult]);
+  /**
+   * Handles MetaMask account changes
+   * Updates account state and balance, triggers asset refresh
+   * @param accounts - Array of account addresses
+   */
+  const handleAccountsChanged = useCallback(async (accounts: string[]) => {
+    hasLoadedAssetsRef.current = false;
+    if (accounts.length === 0) {
+      setAccount(null);
+      setBalance(null);
+    } else {
+      setAccount(accounts[0]);
+      if (window.ethereum) {
+        const provider = new BrowserProvider(window.ethereum);
+        const balance = await provider.getBalance(accounts[0]);
+        setBalance(formatEther(balance));
+        refetchAssets();
+      }
+    }
+  }, [refetchAssets]);
 
-  // Contract initialization using React Query
-  const initializeContracts = useCallback(async () => {
-    if (!signer) throw new Error('Signer not available');
-
-    return {
-      tokenContract: new Contract(
-        TOKEN_ADDRESS,
-        [
-          'function name() view returns (string)',
-          'function symbol() view returns (string)',
-          'function getTokenIdCounter() view returns (uint256)',
-          'function getAssetData(uint256) view returns (uint256,address,uint256,uint256)',
-          'function mintAsset(address,string,string,uint256)',
-          'function balanceOf(address) view returns (uint256)',
-          'function ownerOf(uint256) view returns (address)',
-          'function tokenURI(uint256) view returns (string)',
-          'function totalSupply() view returns (uint256)',
-          'function approve(address to, uint256 tokenId)',
-          'function getApproved(uint256 tokenId) view returns (address)',
-          'function isApprovedForAll(address owner, address operator) view returns (bool)',
-          'function setApprovalForAll(address operator, bool approved)',
-          'function safeTransferFrom(address from, address to, uint256 tokenId)'
-        ],
-        signer
-      ),
-      marketplaceContract: new Contract(
-        MARKETPLACE_ADDRESS,
-        [
-          'function listAsset(uint256,uint256)',
-          'function buyAsset(uint256) payable',
-          'function listings(uint256) view returns (address seller, uint256 price, bool isActive)',
-          'function feePercentage() view returns (uint256)',
-          'function rwaToken() view returns (address)'
-        ],
-        signer
-      )
-    };
-  }, [signer]);
+  /**
+   * Handles network/chain changes in MetaMask
+   * Reloads the page to ensure proper state reset
+   */
+  const handleChainChanged = () => {
+    window.location.reload();
+  };
 
   // Set up MetaMask event listeners
   useEffect(() => {

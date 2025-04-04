@@ -1,13 +1,7 @@
 /**
- * RWA (Real World Asset) Marketplace Application
- * 
- * This is the main application component that provides functionality for:
- * - Wallet connection and management (MetaMask)
- * - Smart contract interactions (RWAToken and RWAMarketplace)
- * - Asset management (viewing, minting, listing, buying)
- * - Transaction tracking and activity logging
- * 
- * @module App
+ * RWA (Real World Asset) Test Interface Component
+ * This component provides a user interface for testing RWA token and marketplace contracts.
+ * It allows users to connect their wallet, mint test assets, and view transaction results.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -20,40 +14,26 @@ import AssetCard from './components/AssetCard';
 import ActivityItem from './components/ActivityItem';
 import { Asset, TestResult } from './types/index';
 
-/** Smart contract addresses from environment variables with fallbacks */
-const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
-const MARKETPLACE_ADDRESS = import.meta.env.VITE_MARKETPLACE_ADDRESS || "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
+// Contract addresses from environment variables
+let TOKEN_ADDRESS = "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
+let MARKETPLACE_ADDRESS = "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
 
-/**
- * Validates required environment variables
- * @throws {Error} If any required environment variables are missing
- */
-const validateEnv = () => {
-  const requiredVars = {
-    TOKEN_ADDRESS: import.meta.env.VITE_TOKEN_ADDRESS,
-    MARKETPLACE_ADDRESS: import.meta.env.VITE_MARKETPLACE_ADDRESS
-  };
+// Log environment variables for debugging
+console.log('Environment Variables:', {
+  TOKEN_ADDRESS,
+  MARKETPLACE_ADDRESS,
+  allEnv: import.meta.env
+});
 
-  console.log('Environment Variables:', {
-    ...requiredVars,
-    MODE: import.meta.env.MODE,
-    DEV: import.meta.env.DEV
-  });
+// Add validation
+if (!TOKEN_ADDRESS || !MARKETPLACE_ADDRESS) {
+  console.error('Contract addresses not found in environment variables. Please check your .env file.');
+  // Use fallback addresses for development (replace with your actual deployed contract addresses)
+  TOKEN_ADDRESS = "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
+  MARKETPLACE_ADDRESS = "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
 
-  const missingVars = Object.entries(requiredVars)
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-
-  if (missingVars.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missingVars.join(', ')}\n` +
-      'Please check your .env file and ensure all required variables are set.'
-    );
-  }
-};
-
-// Run environment validation immediately
-validateEnv();
+  console.warn(`Using fallback addresses:\nToken: ${TOKEN_ADDRESS}\nMarketplace: ${MARKETPLACE_ADDRESS}`);
+}
 
 // Window type declaration
 declare global {
@@ -218,22 +198,6 @@ function App() {
     };
   }, [signer]);
 
-  // Set up MetaMask event listeners
-  useEffect(() => {
-    if (window.ethereum) {
-      // Listen for account changes
-      window.ethereum.on('accountsChanged', (accounts: unknown) => handleAccountsChanged(accounts as string[]));
-      // Listen for network changes
-      window.ethereum.on('chainChanged', handleChainChanged);
-
-      return () => {
-        // Cleanup listeners when component unmounts
-        window.ethereum?.removeListener('accountsChanged', (params: unknown) => handleAccountsChanged(params as string[]));
-        window.ethereum?.removeListener('chainChanged', handleChainChanged);
-      };
-    }
-  }, []); // Remove handleAccountsChanged from dependencies
-
   // Wallet connection mutation
   const { mutate: connectWallet } = useMutation({
     mutationFn: async () => {
@@ -241,15 +205,9 @@ function App() {
         throw new Error('Please install MetaMask!');
       }
 
-      // Force MetaMask to show account selection
       const accounts = await window.ethereum.request({
-        method: 'wallet_requestPermissions',
-        params: [{
-          eth_accounts: {}
-        }]
-      }).then(() => window.ethereum!.request({
         method: 'eth_requestAccounts'
-      }));
+      });
 
       const provider = new BrowserProvider(window.ethereum);
       const network = await provider.getNetwork();
@@ -325,6 +283,20 @@ function App() {
     // Reload the page when network changes
     window.location.reload();
   };
+
+  // Cleanup event listeners when component unmounts
+  useEffect(() => {
+    return () => {
+      if (window.ethereum) {
+        if ('removeListener' in window.ethereum && window.ethereum.removeListener) {
+          window.ethereum.removeListener('accountsChanged', (params: unknown) => handleAccountsChanged(params as string[]));
+        }
+        if ('removeListener' in window.ethereum && window.ethereum.removeListener) {
+          window.ethereum.removeListener('chainChanged', handleChainChanged);
+        }
+      }
+    };
+  }, []);
 
   // Auto-connect to wallet if previously connected
   useEffect(() => {
@@ -822,15 +794,6 @@ function App() {
 }
 
 export default App;
-
-
-
-
-
-
-
-
-
 
 
 

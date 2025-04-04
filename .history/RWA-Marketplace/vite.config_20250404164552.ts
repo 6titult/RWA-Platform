@@ -9,7 +9,9 @@ export default defineConfig(({ mode }) => {
     plugins: [react({
       babel: {
         parserOpts: {
-          // Removed invalid generatorOpts property
+          generatorOpts: {
+            compact: true
+          }
         }
       }
     })],

@@ -1,13 +1,7 @@
 /**
- * RWA (Real World Asset) Marketplace Application
- * 
- * This is the main application component that provides functionality for:
- * - Wallet connection and management (MetaMask)
- * - Smart contract interactions (RWAToken and RWAMarketplace)
- * - Asset management (viewing, minting, listing, buying)
- * - Transaction tracking and activity logging
- * 
- * @module App
+ * RWA (Real World Asset) Test Interface Component
+ * This component provides a user interface for testing RWA token and marketplace contracts.
+ * It allows users to connect their wallet, mint test assets, and view transaction results.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -20,14 +14,11 @@ import AssetCard from './components/AssetCard';
 import ActivityItem from './components/ActivityItem';
 import { Asset, TestResult } from './types/index';
 
-/** Smart contract addresses from environment variables with fallbacks */
+// Contract addresses from environment variables
 const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
 const MARKETPLACE_ADDRESS = import.meta.env.VITE_MARKETPLACE_ADDRESS || "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
 
-/**
- * Validates required environment variables
- * @throws {Error} If any required environment variables are missing
- */
+// Environment variable validation
 const validateEnv = () => {
   const requiredVars = {
     TOKEN_ADDRESS: import.meta.env.VITE_TOKEN_ADDRESS,
@@ -822,7 +813,6 @@ function App() {
 }
 
 export default App;
-
 
 
 

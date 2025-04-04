@@ -4,12 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "clean": "rm -rf node_modules/.vite && rm -rf dist",
-    "dev": "vite --force",
-    "build": "npm run clean && tsc && vite build",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "reset": "rm -rf node_modules && rm -f package-lock.json && npm install"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.69.0",
@@ -41,4 +39,3 @@
     "vite": "^6.2.0"
   }
 }
-
