@@ -50,6 +50,22 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Filter styling */
+.filters {
+  padding: var(--spacing-sm) 0;
+}
+
+.filter-labels {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-size-small);
+  color: var(--neutral-medium);
+}
+
+.filter-labels .fw-bold {
+  color: var(--primary-color);
+}
+
 /* Card styling */
 .marketplace-card, .activity-card {
   box-shadow: var(--shadow-md);
@@ -190,6 +206,9 @@
 
 .activity-list {
   padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .activity-item {
@@ -407,5 +426,18 @@
   height: 1rem;
 }
 
+.marketplace-info {
+  font-size: 0.85em;
+  color: #666;
+  border-top: 1px solid #eee;
+  margin-top: 10px;
+  padding-top: 10px;
+}
 
+.marketplace-info .value {
+  background: #f8f9fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 5px;
+}
 

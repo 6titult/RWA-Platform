@@ -6,9 +6,12 @@ interface AssetCardProps {
   onBuy: () => void;
   onList: () => void;
   isOwner: boolean;
+  loading?: boolean;
 }
 
-export default function AssetCard({ asset, onBuy, onList, isOwner }: AssetCardProps) {
+export default function AssetCard({ asset, onBuy, onList, isOwner, loading = false }: AssetCardProps) {
+  // Log the isOwner value for debugging
+  console.log("Asset #" + asset.id + " isOwner:", isOwner);
   // Format the valuation to display with commas and 2 decimal places
   const formattedValuation = parseFloat(asset.valuation).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -51,6 +54,12 @@ export default function AssetCard({ asset, onBuy, onList, isOwner }: AssetCardPr
             <strong>Owner:</strong>
             <span className="value" title={asset.owner}>{formatAddress(asset.owner)}</span>
           </p>
+          <p className="marketplace-info">
+            <strong>Marketplace:</strong>
+            <span className="value" title={asset.marketplace}>
+              {formatAddress(asset.marketplace)}
+            </span>
+          </p>
           {asset.listed && (
             <p className="price-tag">
               <strong>Price:</strong>
@@ -65,9 +74,19 @@ export default function AssetCard({ asset, onBuy, onList, isOwner }: AssetCardPr
               variant="primary"
               onClick={onBuy}
               className="w-100 mb-2"
+              disabled={loading}
             >
-              <i className="bi bi-cart-plus me-2"></i>
-              Buy Now
+              {loading ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Buying...
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-cart-plus me-2"></i>
+                  Buy Now
+                </>
+              )}
             </Button>
           )}
           {isOwner && !asset.listed && (
@@ -75,9 +94,19 @@ export default function AssetCard({ asset, onBuy, onList, isOwner }: AssetCardPr
               variant="outline-primary"
               onClick={onList}
               className="w-100"
+              disabled={loading}
             >
-              <i className="bi bi-tag me-2"></i>
-              List for Sale
+              {loading ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Listing...
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-tag me-2"></i>
+                  List for Sale
+                </>
+              )}
             </Button>
           )}
           {isOwner && asset.listed && (
@@ -91,3 +120,8 @@ export default function AssetCard({ asset, onBuy, onList, isOwner }: AssetCardPr
     </Card>
   );
 }
+
+
+
+
+

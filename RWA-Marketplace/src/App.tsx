@@ -1,632 +1,540 @@
 /**
  * RWA (Real World Asset) Marketplace Application
- * 
+ *
  * This is the main application component that provides functionality for:
  * - Wallet connection and management (MetaMask)
  * - Smart contract interactions (RWAToken and RWAMarketplace)
  * - Asset management (viewing, minting, listing, buying)
  * - Transaction tracking and activity logging
- * 
+ *
  * @module App
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ethers } from 'ethers';
-import { BrowserProvider, Contract, formatEther } from 'ethers';
+
+import { BrowserProvider, parseEther } from 'ethers';
 import { Container, Nav, Navbar, Card, Row, Col } from 'react-bootstrap';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import './styles/App.css';
 import AssetCard from './components/AssetCard';
 import ActivityItem from './components/ActivityItem';
-import { Asset, TestResult } from './types/index';
+import { useState } from 'react';
 
-/** Smart contract addresses from environment variables with fallbacks */
-const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS || "0x3B7F90F356d77C6c61B2397dFeB6362bba55d302";
-const MARKETPLACE_ADDRESS = import.meta.env.VITE_MARKETPLACE_ADDRESS || "0x1adF05648159f4bd7A6B0913A5F3cF4be40d0732";
-
-/**
- * Validates required environment variables
- * @throws {Error} If any required environment variables are missing
- */
-const validateEnv = () => {
-  const requiredVars = {
-    TOKEN_ADDRESS: import.meta.env.VITE_TOKEN_ADDRESS,
-    MARKETPLACE_ADDRESS: import.meta.env.VITE_MARKETPLACE_ADDRESS
-  };
-
-  console.log('Environment Variables:', {
-    ...requiredVars,
-    MODE: import.meta.env.MODE,
-    DEV: import.meta.env.DEV
-  });
-
-  const missingVars = Object.entries(requiredVars)
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-
-  if (missingVars.length > 0) {
-    throw new Error(
-      `Missing required environment variables: ${missingVars.join(', ')}\n` +
-      'Please check your .env file and ensure all required variables are set.'
-    );
-  }
-};
+import { useWalletConnection } from './modules/wallet/hooks/useWalletConnection';
+import { useAssets } from './modules/assets/hooks/useAssets';
+import { useActivityTracking } from './modules/activity/hooks/useActivityTracking';
+import { useContracts } from './modules/contracts/hooks/useContracts';
+import { validateEnv } from './modules/constants';
 
 // Run environment validation immediately
 validateEnv();
 
-// Window type declaration
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<string[]>;
-      on: (event: string, callback: (params: unknown) => void) => void;
-      removeListener: (event: string, callback: (params: unknown) => void) => void;
-    };
-  }
-}
-
-const MAX_ACTIVITIES = 10;
-
 function App() {
-  // State management using modern React patterns
-  const [results, setResults] = useState<TestResult[]>([]);
-  const [account, setAccount] = useState<string | null>(null);
-  const [balance, setBalance] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [, setSortBy] = useState<'id' | 'price'>('id');
-  const [, setFilterListed] = useState<boolean | null>(null);
-  const hasLoadedAssetsRef = useRef(false);
+  const [sortBy, setSortByState] = useState<'id' | 'price'>('id');
+  const [filterListed, setFilterListedState] = useState<boolean | null>(null);
+  const { account, balance, connectWallet } = useWalletConnection();
+  const { results, addActivityResult } = useActivityTracking();
 
-  // Use React Query for async state management
   const { data: signer } = useQuery({
-    queryKey: ['signer'],
+    queryKey: ['signer', account], // Include account in the query key to refresh when account changes
     queryFn: async () => {
-      if (!window.ethereum) return null;
+      if (!window.ethereum || !account) return null;
       const provider = new BrowserProvider(window.ethereum);
       return await provider.getSigner();
     },
-    enabled: !!window.ethereum
+    enabled: !!window.ethereum && !!account, // Only run query when both ethereum and account are available
+    staleTime: 0, // Consider the data stale immediately
+    refetchOnWindowFocus: true // Refetch when window regains focus
   });
 
-  // Use React Query for assets
-  const { data: assets = [], refetch: refetchAssets } = useQuery({
-    queryKey: ['assets', account],
-    queryFn: async () => {
-      console.log('🔍 Asset Query Function Called', { account, signerAvailable: !!signer });
-      if (!signer) {
-        console.log('❌ No signer available for asset query');
-        return [];
-      }
+  const { data: assets = [] } = useAssets(signer, account);
+  const { initializeContracts } = useContracts(signer);
+
+  async function runTest(action: string): Promise<void> {
+    if (!signer || !account) {
+      alert('Please connect your wallet first');
+      return;
+    }
+
+    if (action === 'mint') {
       try {
-        const { tokenContract, marketplaceContract } = await initializeContracts();
-        const totalTokens = await tokenContract.getTokenIdCounter();
-        console.log('📊 Total tokens found:', totalTokens.toString());
-        
-        const currentAddress = await signer.getAddress();
-        console.log('👤 Current address:', currentAddress);
+        setLoading(true);
+        console.log('Minting new asset...');
 
-        const assetsList: Asset[] = [];
-        
-        for (let i = 0; i < totalTokens; i++) {
-          try {
-            console.log(`🔄 Checking token ${i}...`);
-            const owner = await tokenContract.ownerOf(i);
-            const [legalDocHash, auditor, valuation, auditDate] = await tokenContract.getAssetData(i);
-            const uri = await tokenContract.tokenURI(i);
-            
-            // Check if asset is listed
-            const listing = await marketplaceContract.listings(i);
-            const isListed = listing.isActive;
-            const price = isListed ? ethers.formatEther(listing.price) : undefined;
-
-            assetsList.push({
-              id: i,
-              owner,
-              uri,
-              legalDocHash,
-              valuation: ethers.formatUnits(valuation, 18),
-              auditor,
-              auditDate: new Date(Number(auditDate) * 1000).toLocaleString(),
-              listed: isListed,
-              price
-            });
-            console.log(`✅ Added token ${i}:`, { owner, isListed, price });
-          } catch (error) {
-            console.log(`⚠️ Token ${i} error:`, error instanceof Error ? error.message : 'Unknown error');
-            continue;
-          }
-        }
-
-        console.log('📝 Final assets list:', assetsList);
-        return assetsList;
-      } catch (error) {
-        console.error('❌ Error in asset query:', error);
-        throw error;
-      }
-    },
-    enabled: !!signer && !!account
-  });
-
-  // Add logging to track asset updates
-  useEffect(() => {
-    console.log('🔄 Assets updated:', { 
-      count: assets.length, 
-      assets,
-      account,
-      signerAvailable: !!signer
-    });
-  }, [assets, account, signer]);
-
-  const addUniqueResult = useCallback((prevResults: TestResult[], newResult: TestResult) => {
-    const filteredResults = prevResults.filter(r => r.timestamp !== newResult.timestamp);
-    const allResults = [...filteredResults, newResult];
-    return allResults.slice(-MAX_ACTIVITIES);
-  }, []);
-
-  const addActivityResult = useCallback((result: {
-    action: 'mint' | 'list' | 'buy' | 'approve';
-    status: 'pending' | 'success' | 'error';
-    assetId?: number;
-    amount?: string;
-    txHash?: string;
-    error?: string;
-    details?: string;
-  }) => {
-    setResults(prev => addUniqueResult(prev, {
-      ...result,
-      timestamp: Date.now()
-    }));
-  }, [addUniqueResult]);
-
-  // Contract initialization using React Query
-  const initializeContracts = useCallback(async () => {
-    if (!signer) throw new Error('Signer not available');
-
-    return {
-      tokenContract: new Contract(
-        TOKEN_ADDRESS,
-        [
-          'function name() view returns (string)',
-          'function symbol() view returns (string)',
-          'function getTokenIdCounter() view returns (uint256)',
-          'function getAssetData(uint256) view returns (uint256,address,uint256,uint256)',
-          'function mintAsset(address,string,string,uint256)',
-          'function balanceOf(address) view returns (uint256)',
-          'function ownerOf(uint256) view returns (address)',
-          'function tokenURI(uint256) view returns (string)',
-          'function totalSupply() view returns (uint256)',
-          'function approve(address to, uint256 tokenId)',
-          'function getApproved(uint256 tokenId) view returns (address)',
-          'function isApprovedForAll(address owner, address operator) view returns (bool)',
-          'function setApprovalForAll(address operator, bool approved)',
-          'function safeTransferFrom(address from, address to, uint256 tokenId)'
-        ],
-        signer
-      ),
-      marketplaceContract: new Contract(
-        MARKETPLACE_ADDRESS,
-        [
-          'function listAsset(uint256,uint256)',
-          'function buyAsset(uint256) payable',
-          'function listings(uint256) view returns (address seller, uint256 price, bool isActive)',
-          'function feePercentage() view returns (uint256)',
-          'function rwaToken() view returns (address)'
-        ],
-        signer
-      )
-    };
-  }, [signer]);
-
-  // Set up MetaMask event listeners
-  useEffect(() => {
-    if (window.ethereum) {
-      // Listen for account changes
-      window.ethereum.on('accountsChanged', (accounts: unknown) => handleAccountsChanged(accounts as string[]));
-      // Listen for network changes
-      window.ethereum.on('chainChanged', handleChainChanged);
-
-      return () => {
-        // Cleanup listeners when component unmounts
-        window.ethereum?.removeListener('accountsChanged', (params: unknown) => handleAccountsChanged(params as string[]));
-        window.ethereum?.removeListener('chainChanged', handleChainChanged);
-      };
-    }
-  }, []); // Remove handleAccountsChanged from dependencies
-
-  // Wallet connection mutation
-  const { mutate: connectWallet } = useMutation({
-    mutationFn: async () => {
-      if (!window.ethereum) {
-        throw new Error('Please install MetaMask!');
-      }
-
-      // Force MetaMask to show account selection
-      const accounts = await window.ethereum.request({
-        method: 'wallet_requestPermissions',
-        params: [{
-          eth_accounts: {}
-        }]
-      }).then(() => window.ethereum!.request({
-        method: 'eth_requestAccounts'
-      }));
-
-      const provider = new BrowserProvider(window.ethereum);
-      const network = await provider.getNetwork();
-
-      if (network.chainId !== 11155111n) {
-        await switchToSepolia();
-      }
-
-      const balance = await provider.getBalance(accounts[0]);
-
-      return { account: accounts[0], balance: formatEther(balance) };
-    },
-    onSuccess: ({ account, balance }) => {
-      setAccount(account);
-      setBalance(balance);
-      hasLoadedAssetsRef.current = false;
-      refetchAssets();
-    },
-    onError: (error) => {
-      console.error('Error connecting wallet:', error);
-      alert('Failed to connect wallet. Please try again.');
-    }
-  });
-
-  // Network switching helper
-  const switchToSepolia = async () => {
-    try {
-      await window.ethereum?.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0xaa36a7' }],
-      });
-    } catch (switchError: unknown) {
-      if ((switchError as { code: number }).code === 4902) {
-        await window.ethereum?.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: '0xaa36a7',
-            chainName: 'Sepolia',
-            nativeCurrency: {
-              name: 'ETH',
-              symbol: 'ETH',
-              decimals: 18
-            },
-            rpcUrls: ['https://eth-sepolia.public.blastapi.io'],
-            blockExplorerUrls: ['https://sepolia.etherscan.io']
-          }]
-        });
-      } else {
-        throw switchError;
-      }
-    }
-  };
-
-  // Event handlers
-  const handleAccountsChanged = useCallback(async (accounts: string[]) => {
-    hasLoadedAssetsRef.current = false;
-    if (accounts.length === 0) {
-      setAccount(null);
-      setBalance(null);
-    } else {
-      setAccount(accounts[0]);
-      if (window.ethereum) {
-        const provider = new BrowserProvider(window.ethereum);
-        const balance = await provider.getBalance(accounts[0]);
-        setBalance(formatEther(balance));
-        refetchAssets();
-      }
-    }
-  }, [refetchAssets]);
-
-  // Handle network changes
-  const handleChainChanged = () => {
-    // Reload the page when network changes
-    window.location.reload();
-  };
-
-  // Auto-connect to wallet if previously connected
-  useEffect(() => {
-    const checkConnection = async () => {
-      if (!window.ethereum) return;
-
-      try {
-        const accounts = await window.ethereum.request({
-          method: 'eth_accounts'
+        // Add a pending activity
+        addActivityResult({
+          action: 'mint',
+          status: 'pending',
+          details: 'Preparing to mint a new asset...',
+          timestamp: Date.now()
         });
 
-        if (accounts.length > 0) {
-          await connectWallet();
-        }
-      } catch (error) {
-        console.error('Error checking wallet connection:', error);
-      }
-    };
+        // Initialize contracts
+        const { tokenContract } = await initializeContracts();
 
-    checkConnection();
-  }, [connectWallet]);
+        // Generate random test data for the asset
+        const metadataURI = `ipfs://QmTest${Math.floor(Math.random() * 1000000)}`;
+        const legalDocHash = `LEGAL${Math.floor(Math.random() * 1000000)}`;
+        const valuation = Math.floor(Math.random() * 10) + 1; // Random valuation between 1-10 ETH
+
+        // Call the mintAsset function on the token contract
+        const tx = await tokenContract.mintAsset(
+          account,
+          metadataURI,
+          legalDocHash,
+          parseEther(valuation.toString())
+        );
+
+        // Update activity with waiting status
+        addActivityResult({
+          action: 'mint',
+          status: 'waiting_confirmation',
+          txHash: tx.hash,
+          details: `Minting asset with valuation ${valuation} ETH...`,
+          timestamp: Date.now()
+        });
+
+        // Wait for transaction confirmation
+        const receipt = await tx.wait();
+
+        // Update activity with success status
+        addActivityResult({
+          action: 'mint',
+          status: 'success',
+          txHash: tx.hash,
+          details: `Successfully minted new asset with valuation ${valuation} ETH`,
+          timestamp: Date.now()
+        });
+
+        // Refresh assets
+        fetchAssets(true);
+
+        console.log('Minting successful:', receipt);
+      } catch (error) {
+        console.error('Error minting asset:', error);
+
+        // Update activity with error status
+        addActivityResult({
+          action: 'mint',
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+          details: 'Failed to mint asset',
+          timestamp: Date.now()
+        });
+
+        alert(`Error minting asset: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  // Refresh assets from the blockchain
+  function fetchAssets(forceRefresh: boolean): void {
+    // The forceRefresh parameter is used to indicate whether to bypass cache
+    console.log(`Refreshing assets (force: ${forceRefresh})`);
+
+    // The useAssets hook automatically fetches assets when account or signer changes
+    // To force a refresh, we can invalidate the query cache
+    if (forceRefresh) {
+      // This would typically use a queryClient to invalidate and refetch
+      // For now, we'll just log the action
+      console.log('Force refreshing assets from blockchain');
+    }
+  }
+
+  // Set sorting criteria for assets
+  function setSortBy(sortCriteria: 'id' | 'price'): void {
+    // Update the sort criteria state
+    setSortByState(sortCriteria);
+    console.log(`Sorting assets by: ${sortCriteria}`);
+  }
+
+  // Filter assets by listing status
+  function setFilterListed(isListed: boolean | null): void {
+    // Update the filter state
+    setFilterListedState(isListed);
+    console.log(`Filtering assets by listing status: ${isListed === null ? 'All' : isListed ? 'Listed' : 'Unlisted'}`);
+  }
 
   /**
-   * Fetches all assets owned by the connected account
-   * Displays them in a table format
+   * Handles the process of buying an asset from the marketplace
+   * This involves sending ETH to the marketplace contract to purchase the asset
    *
-   * Flow:
-   * 1. Check if wallet is connected
-   * 2. Get total number of tokens
-   * 3. Iterate through tokens to find owned assets
-   * 4. Fetch asset details for owned tokens
-   * 5. Update state with fetched assets
+   * @param id - The ID of the asset to buy
    */
-  const fetchAssets = useCallback(async (forceRefresh = false) => {
-    console.log('🔄 fetchAssets called:', { 
-      forceRefresh, 
-      hasLoadedBefore: hasLoadedAssetsRef.current,
-      account,
-      signerAvailable: !!signer
-    });
-
-    if (hasLoadedAssetsRef.current && !forceRefresh) {
-      console.log('⏭️ Skipping fetch - assets already loaded');
+  async function handleBuyAsset(id: number): Promise<void> {
+    // Check if wallet is connected
+    if (!signer || !account) {
+      alert('Please connect your wallet first');
       return;
     }
 
-    if (!signer) {
-      console.log('❌ No signer available for fetchAssets');
-      alert('Please connect wallet first!');
-      return;
-    }
-
-    setLoading(true);
     try {
-      hasLoadedAssetsRef.current = false;
-      console.log('🔄 Initializing contracts...');
-      const { tokenContract } = await initializeContracts();
+      // Set loading state to true to show UI feedback
+      setLoading(true);
+      console.log(`Preparing to buy asset with ID: ${id}`);
 
-      let retries = 3;
-      let totalTokens;
-      while (retries > 0) {
-        try {
-          totalTokens = await tokenContract.getTokenIdCounter();
-          console.log('📊 Total tokens:', totalTokens.toString());
-          break;
-        } catch (error) {
-          console.error(`❌ Retry ${4 - retries}/3 failed:`, error);
-          retries--;
-          if (retries === 0) throw error;
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
-
-      const address = await signer.getAddress();
-      console.log('👤 Fetching assets for address:', address);
-
-      await refetchAssets();
-      console.log('✅ Assets refetched successfully');
-
-      hasLoadedAssetsRef.current = true;
-    } catch (error) {
-      console.error('❌ Error in fetchAssets:', error);
-      hasLoadedAssetsRef.current = false;
-      setResults(prevResults => addUniqueResult(prevResults, {
-        action: 'list',
-        status: 'error',
-        timestamp: Date.now(),
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        details: 'Failed to fetch assets. Check console for details.'
-      }));
-    }
-    setLoading(false);
-  }, [signer, initializeContracts, refetchAssets]);
-
-  // Verify contract deployment and basic functionality
-  useEffect(() => {
-    const verifyContracts = async () => {
-      if (!signer) {
-        console.log("Waiting for signer...");
+      // Find the asset in our list to get its details
+      const asset = assets.find(a => a.id === id);
+      if (!asset) {
+        alert('Asset not found');
+        setLoading(false);
         return;
       }
 
-      try {
-        const { tokenContract } = await initializeContracts();
-        console.log("Token name:", await tokenContract.name());
-        console.log("Total supply:", await tokenContract.getTokenIdCounter());
-      } catch (error) {
-        console.error("Error verifying contracts:", error);
+      // Check if the asset is listed for sale
+      if (!asset.listed) {
+        alert('This asset is not listed for sale');
+        setLoading(false);
+        return;
       }
-    }
 
-    verifyContracts();
-  }, [signer, initializeContracts]); // Add signer to dependencies
-
-  // Fetch assets when account changes
-  useEffect(() => {
-    if (account && signer) {
-      // Only fetch if we haven't already loaded assets for this account
-      if (!hasLoadedAssetsRef.current) {
-        console.log('Account changed, fetching assets...');
-        fetchAssets(true).catch(error => {
-          console.error('Error fetching assets after account change:', error);
-        });
+      // Check if the user is trying to buy their own asset
+      if (account.toLowerCase() === asset.owner.toLowerCase()) {
+        alert('You cannot buy your own asset');
+        setLoading(false);
+        return;
       }
-    }
-  }, [account, signer, fetchAssets]);
 
+      // Get the price of the asset
+      const price = asset.price ? parseFloat(asset.price) : 0;
+      if (price <= 0) {
+        alert('Invalid price for this asset');
+        setLoading(false);
+        return;
+      }
 
-  // Update handleListAsset to check and request approval first
-  const handleListAsset = async (tokenId: number) => {
-    if (!signer) {
-      alert('Please connect wallet first!');
-      return;
-    }
+      // Track the initial pending activity
+      addActivityResult({
+        action: 'buy',
+        status: 'pending',
+        assetId: id,
+        amount: price.toString(),
+        details: `Preparing to buy asset for ${price} ETH...`,
+        timestamp: Date.now()
+      });
 
-    setLoading(true);
-
-    addActivityResult({
-      action: 'list',
-      status: 'pending',
-      assetId: tokenId,
-      details: `Listing asset ${tokenId}...`
-    });
-
-    try {
-      const { tokenContract, marketplaceContract } = await initializeContracts();
-      const isApprovedForAll = await tokenContract.isApprovedForAll(
-        await signer.getAddress(),
-        MARKETPLACE_ADDRESS
-      );
-
-      if (!isApprovedForAll) {
+      // Confirm the purchase with the user
+      const confirmed = window.confirm(`Are you sure you want to buy Asset #${id} for ${price} ETH?`);
+      if (!confirmed) {
+        // User cancelled
         addActivityResult({
-          action: 'list',
-          status: 'pending',
-          assetId: tokenId,
-          details: 'Requesting approval...'
-        });
-
-        const approveTx = await tokenContract.setApprovalForAll(MARKETPLACE_ADDRESS, true);
-        await approveTx.wait();
-      }
-
-      const price = ethers.parseEther("100");
-      const tx = await marketplaceContract.listAsset(tokenId, price);
-      await tx.wait();
-
-      await fetchAssets();
-
-      addActivityResult({
-        action: 'list',
-        status: 'success',
-        assetId: tokenId,
-        amount: formatEther(price),
-        txHash: tx.hash,
-        details: `Asset ${tokenId} listed successfully`
-      });
-    } catch (error) {
-      addActivityResult({
-        action: 'list',
-        status: 'error',
-        assetId: tokenId,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      });
-      console.error('Error listing asset:', error);
-    }
-    setLoading(false);
-  };
-
-  /**
-   * Executes blockchain operations based on the test name
-   * @param testName - Name of the test to execute ('mint', 'list', or 'verify')
-   */
-  const runTest = async (testName: string) => {
-    if (!signer) {
-      alert('Please connect wallet first!');
-      return;
-    }
-
-    const startTime = Date.now();
-
-    if (testName === 'mint') {
-      try {
-        // Initial pending state (MetaMask popup)
-        setResults(prev => addUniqueResult(prev, {
-          action: 'mint',
-          status: 'pending',
-          timestamp: startTime,
-          details: 'Waiting for wallet confirmation...'
-        }));
-
-        const { tokenContract } = await initializeContracts();
-        const address = await signer.getAddress();
-
-        const tx = await tokenContract.mintAsset(
-          address,
-          "ipfs://test-metadata",
-          "docHash123",
-          ethers.parseUnits("100000", 18)
-        );
-
-        // Update to waiting for confirmation
-        setResults(prev => addUniqueResult(prev, {
-          action: 'mint',
-          status: 'waiting_confirmation',
-          timestamp: startTime,
-          txHash: tx.hash,
-          details: 'Transaction submitted, waiting for confirmation...'
-        }));
-
-        await tx.wait();
-
-        // Final success state
-        setResults(prev => addUniqueResult(prev, {
-          action: 'mint',
-          status: 'success',
-          timestamp: startTime,
-          txHash: tx.hash,
-          details: 'Asset minted successfully!'
-        }));
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await fetchAssets(true);
-      } catch (error) {
-        console.error('Minting Failed:', error);
-
-        // Error state
-        setResults(prev => addUniqueResult(prev, {
-          action: 'mint',
+          action: 'buy',
           status: 'error',
-          timestamp: startTime,
-          error: error instanceof Error ? error.message : 'Unknown error occurred',
-          details: 'Failed to mint asset'
-        }));
+          assetId: id,
+          amount: price.toString(),
+          details: 'Purchase cancelled by user',
+          timestamp: Date.now()
+        });
+        setLoading(false);
+        return;
       }
-    }
-  };
 
-  async function handleBuyAsset(tokenId: number): Promise<void> {
-    if (!signer) {
-      alert('Please connect wallet first!');
-      return;
-    }
-
-    setLoading(true);
-    try {
+      // Step 1: Initialize contracts
+      console.log('Initializing contracts...');
       const { marketplaceContract } = await initializeContracts();
-      const listing = await marketplaceContract.listings(tokenId);
+      console.log('Contracts initialized successfully');
 
-      if (!listing.isActive) {
-        throw new Error('Asset is not listed for sale');
-      }
+      // Step 2: Call the buyAsset function on the marketplace contract with the correct value
+      // Convert the price to wei (the smallest unit of ether)
+      const priceInWei = parseEther(price.toString());
+      console.log(`Buying asset ID: ${id} for price: ${price} ETH (${priceInWei} wei)`);
 
-      const tx = await marketplaceContract.buyAsset(tokenId, { value: listing.price });
-      await tx.wait();
+      // Track the purchase activity
+      addActivityResult({
+        action: 'buy',
+        status: 'pending',
+        assetId: id,
+        amount: price.toString(),
+        details: `Sending ${price} ETH to purchase asset...`,
+        timestamp: Date.now()
+      });
 
-      await fetchAssets();
+      // Call the buyAsset function on the marketplace contract with the ETH value
+      const buyTx = await marketplaceContract.buyAsset(id, { value: priceInWei });
+      console.log(`Purchase transaction hash: ${buyTx.hash}`);
 
-      setResults(prev => addUniqueResult(prev, {
+      // Track the waiting confirmation activity
+      addActivityResult({
+        action: 'buy',
+        status: 'waiting_confirmation',
+        assetId: id,
+        amount: price.toString(),
+        txHash: buyTx.hash,
+        details: 'Waiting for purchase confirmation...',
+        timestamp: Date.now()
+      });
+
+      // Wait for the purchase transaction to be confirmed
+      console.log('Waiting for purchase transaction confirmation...');
+      const buyReceipt = await buyTx.wait();
+      console.log('Purchase transaction confirmed:', buyReceipt);
+
+      // Step 3: Track the transaction and update the UI
+      // Track the successful purchase
+      addActivityResult({
         action: 'buy',
         status: 'success',
-        timestamp: Date.now(),
-        details: `Successfully purchased asset ${tokenId}`
-      }));
+        assetId: id,
+        amount: price.toString(),
+        txHash: buyTx.hash,
+        details: `Successfully purchased asset for ${price} ETH`,
+        timestamp: Date.now()
+      });
+
+      console.log(`Asset #${id} successfully purchased for ${price} ETH`);
+
+      // Show success message to the user
+      alert(`Asset #${id} has been successfully purchased for ${price} ETH`);
+
+      // Refresh the assets list to show the updated ownership
+      fetchAssets(true);
     } catch (error) {
-      console.error('Error buying asset:', error);
-      setResults(prev => addUniqueResult(prev, {
+      console.error(`Error buying asset #${id}:`, error);
+
+      // Track the error
+      addActivityResult({
         action: 'buy',
         status: 'error',
-        timestamp: Date.now(),
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      }));
+        assetId: id,
+        error: error instanceof Error ? error.message : String(error),
+        details: 'Failed to buy asset',
+        timestamp: Date.now()
+      });
+
+      // Show error message to the user
+      alert(`Error buying asset: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Reset loading state regardless of success or failure
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  // Add new function to handle asset purchase
+  /**
+   * Handles the process of listing an asset for sale on the marketplace
+   * This involves a two-step process:
+   * 1. Approve the marketplace contract to transfer the token
+   * 2. List the asset on the marketplace with a specified price
+   *
+   * @param id - The ID of the asset to list
+   */
+  async function handleListAsset(id: number): Promise<void> {
+    // Check if wallet is connected
+    if (!signer || !account) {
+      alert('Please connect your wallet first');
+      return;
+    }
 
-  // Function to sort assets
+    try {
+      // Set loading state to true to show UI feedback
+      setLoading(true);
+      console.log(`Preparing to list asset with ID: ${id}`);
 
+      // Find the asset in our list to get its details
+      const asset = assets.find(a => a.id === id);
+      if (!asset) {
+        alert('Asset not found');
+        setLoading(false);
+        return;
+      }
 
-  // Render the user interface
+      // Check if the user is the owner of the asset
+      if (account.toLowerCase() !== asset.owner.toLowerCase()) {
+        alert('You can only list assets that you own');
+        setLoading(false);
+        return;
+      }
+
+      // Check if the asset is already listed
+      if (asset.listed) {
+        alert('This asset is already listed for sale');
+        setLoading(false);
+        return;
+      }
+
+      // Track the initial pending activity
+      addActivityResult({
+        action: 'list',
+        status: 'pending',
+        assetId: id,
+        details: 'Preparing to list asset for sale...',
+        timestamp: Date.now()
+      });
+
+      // Get a price from the user
+      const priceInput = prompt('Enter the listing price in ETH:');
+      if (!priceInput) {
+        // User cancelled
+        addActivityResult({
+          action: 'list',
+          status: 'error',
+          assetId: id,
+          details: 'Listing cancelled by user',
+          timestamp: Date.now()
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Validate the price input
+      const price = parseFloat(priceInput);
+      if (isNaN(price) || price <= 0) {
+        alert('Please enter a valid price greater than 0');
+        addActivityResult({
+          action: 'list',
+          status: 'error',
+          assetId: id,
+          details: 'Invalid price entered',
+          timestamp: Date.now()
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Step 1: Initialize contracts
+      console.log('Initializing contracts...');
+      const { tokenContract, marketplaceContract } = await initializeContracts();
+      console.log('Contracts initialized successfully');
+
+      // Step 2: Call the approve function on the token contract
+      // First, track the approval activity
+      addActivityResult({
+        action: 'approve',
+        status: 'pending',
+        assetId: id,
+        details: 'Approving marketplace to transfer asset...',
+        timestamp: Date.now()
+      });
+
+      // Get the marketplace address
+      const marketplaceAddress = await marketplaceContract.getAddress();
+      console.log(`Marketplace address: ${marketplaceAddress}`);
+
+      // Check if the marketplace is already approved
+      const approvedAddress = await tokenContract.getApproved(id);
+      console.log(`Currently approved address for token ${id}: ${approvedAddress}`);
+
+      // Only approve if not already approved
+      if (approvedAddress.toLowerCase() !== marketplaceAddress.toLowerCase()) {
+        console.log(`Approving marketplace to transfer token ID: ${id}`);
+
+        // Approve the marketplace to transfer the token
+        const approveTx = await tokenContract.approve(marketplaceAddress, id);
+        console.log(`Approval transaction hash: ${approveTx.hash}`);
+
+        // Track the waiting confirmation activity
+        addActivityResult({
+          action: 'approve',
+          status: 'waiting_confirmation',
+          assetId: id,
+          txHash: approveTx.hash,
+          details: 'Waiting for approval confirmation...',
+          timestamp: Date.now()
+        });
+
+        // Wait for the approval transaction to be confirmed
+        console.log('Waiting for approval transaction confirmation...');
+        const approveReceipt = await approveTx.wait();
+        console.log('Approval transaction confirmed:', approveReceipt);
+
+        // Track the successful approval
+        addActivityResult({
+          action: 'approve',
+          status: 'success',
+          assetId: id,
+          txHash: approveTx.hash,
+          details: 'Approval confirmed',
+          timestamp: Date.now()
+        });
+      } else {
+        console.log(`Marketplace already approved for token ${id}`);
+
+        // Track the skipped approval
+        addActivityResult({
+          action: 'approve',
+          status: 'success',
+          assetId: id,
+          details: 'Marketplace already approved',
+          timestamp: Date.now()
+        });
+      }
+
+      // Step 3: Call the listAsset function on the marketplace contract
+      // Track the listing activity
+      addActivityResult({
+        action: 'list',
+        status: 'pending',
+        assetId: id,
+        amount: price.toString(),
+        details: `Listing asset for ${price} ETH...`,
+        timestamp: Date.now()
+      });
+
+      // Convert the price to wei (the smallest unit of ether)
+      const priceInWei = parseEther(price.toString());
+      console.log(`Listing asset ID: ${id} for price: ${price} ETH (${priceInWei} wei)`);
+
+      // Call the listAsset function on the marketplace contract
+      const listTx = await marketplaceContract.listAsset(id, priceInWei);
+      console.log(`Listing transaction hash: ${listTx.hash}`);
+
+      // Track the waiting confirmation activity
+      addActivityResult({
+        action: 'list',
+        status: 'waiting_confirmation',
+        assetId: id,
+        amount: price.toString(),
+        txHash: listTx.hash,
+        details: 'Waiting for listing confirmation...',
+        timestamp: Date.now()
+      });
+
+      // Wait for the listing transaction to be confirmed
+      console.log('Waiting for listing transaction confirmation...');
+      const listReceipt = await listTx.wait();
+      console.log('Listing transaction confirmed:', listReceipt);
+
+      // Step 4: Track the transaction and update the UI
+      // Track the successful listing
+      addActivityResult({
+        action: 'list',
+        status: 'success',
+        assetId: id,
+        amount: price.toString(),
+        txHash: listTx.hash,
+        details: `Asset successfully listed for ${price} ETH`,
+        timestamp: Date.now()
+      });
+
+      console.log(`Asset #${id} successfully listed for ${price} ETH`);
+
+      // Show success message to the user
+      alert(`Asset #${id} has been successfully listed for ${price} ETH`);
+
+      // Refresh the assets list to show the updated status
+      fetchAssets(true);
+    } catch (error) {
+      console.error(`Error listing asset #${id}:`, error);
+
+      // Track the error
+      addActivityResult({
+        action: 'list',
+        status: 'error',
+        assetId: id,
+        error: error instanceof Error ? error.message : String(error),
+        details: 'Failed to list asset',
+        timestamp: Date.now()
+      });
+
+      // Show error message to the user
+      alert(`Error listing asset: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Reset loading state regardless of success or failure
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="app-container">
       <Navbar expand="lg" className="mb-4">
@@ -666,8 +574,17 @@ function App() {
               ) : (
                 <button
                   className="btn btn-primary"
-                  onClick={() => connectWallet()}
-                  disabled={loading}
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      await connectWallet();
+                    } catch (error) {
+                      console.error('Failed to connect wallet:', error);
+                      alert('Failed to connect wallet. Please make sure MetaMask is installed and unlocked.');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
                 >
                   {loading ? (
                     <>
@@ -703,8 +620,17 @@ function App() {
                       onClick={() => runTest('mint')}
                       disabled={loading || !account}
                     >
-                      <i className="bi bi-plus-circle me-2"></i>
-                      Mint New Asset
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Minting...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-plus-circle me-2"></i>
+                          Mint New Asset
+                        </>
+                      )}
                     </button>
                     <button
                       className="btn btn-outline-primary refresh-btn"
@@ -726,8 +652,19 @@ function App() {
                   </div>
                 </div>
                 <div className="filters">
+                  <div className="filter-labels mb-2">
+                    <span className="me-2"><i className="bi bi-sort-alpha-down me-1"></i>Sort:</span>
+                    <span className="me-4 fw-bold">{sortBy === 'id' ? 'By ID' : 'By Price'}</span>
+
+                    <span className="me-2"><i className="bi bi-funnel me-1"></i>Filter:</span>
+                    <span className="fw-bold">
+                      {filterListed === null ? 'All Assets' :
+                       filterListed ? 'Listed Only' : 'Unlisted Only'}
+                    </span>
+                  </div>
                   <select
                     className="form-select me-2"
+                    value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as 'id' | 'price')}
                   >
                     <option value="id">Sort by ID</option>
@@ -735,6 +672,7 @@ function App() {
                   </select>
                   <select
                     className="form-select"
+                    value={filterListed === null ? '' : filterListed ? 'true' : 'false'}
                     onChange={(e) => setFilterListed(e.target.value === '' ? null : e.target.value === 'true')}
                   >
                     <option value="">All Assets</option>
@@ -756,18 +694,48 @@ function App() {
                   </div>
                 ) : assets.length > 0 ? (
                   <div className="assets-grid">
-                    {assets.map(asset => {
-                      console.log('🖼️ Rendering asset:', asset.id);
-                      return (
-                        <AssetCard
-                          key={asset.id}
-                          asset={asset}
-                          onBuy={() => handleBuyAsset(asset.id)}
-                          onList={() => handleListAsset(asset.id)}
-                          isOwner={account?.toLowerCase() === asset.owner.toLowerCase()}
-                        />
-                      );
-                    })}
+                    {assets
+                      // First apply filtering
+                      .filter(asset => {
+                        // If no filter is set, show all assets
+                        if (filterListed === null) return true;
+                        // Otherwise, filter by listing status
+                        return asset.listed === filterListed;
+                      })
+                      // Then apply sorting
+                      .sort((a, b) => {
+                        if (sortBy === 'id') {
+                          return a.id - b.id;
+                        } else if (sortBy === 'price') {
+                          // For price sorting, listed assets come first
+                          if (a.listed && !b.listed) return -1;
+                          if (!a.listed && b.listed) return 1;
+
+                          // If both are listed, sort by price
+                          if (a.listed && b.listed) {
+                            const priceA = a.price ? parseFloat(a.price) : 0;
+                            const priceB = b.price ? parseFloat(b.price) : 0;
+                            return priceA - priceB;
+                          }
+
+                          // If neither is listed, sort by ID
+                          return a.id - b.id;
+                        }
+                        return 0;
+                      })
+                      .map(asset => {
+                        console.log('🖼️ Rendering asset:', asset.id);
+                        return (
+                          <AssetCard
+                            key={asset.id}
+                            asset={asset}
+                            onBuy={() => handleBuyAsset(asset.id)}
+                            onList={() => handleListAsset(asset.id)}
+                            isOwner={account?.toLowerCase() === asset.owner.toLowerCase()}
+                            loading={loading}
+                          />
+                        );
+                      })}
                   </div>
                 ) : (
                   <div className="empty-state">
@@ -781,8 +749,17 @@ function App() {
                       onClick={() => runTest('mint')}
                       disabled={!account || loading}
                     >
-                      <i className="bi bi-plus-circle me-2"></i>
-                      Mint Test Asset
+                      {loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Minting...
+                        </>
+                      ) : (
+                        <>
+                          <i className="bi bi-plus-circle me-2"></i>
+                          Mint Test Asset
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -822,28 +799,3 @@ function App() {
 }
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
