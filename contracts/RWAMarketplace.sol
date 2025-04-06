@@ -35,6 +35,10 @@ contract RWAMarketplace {
      */
     event AssetListed(uint256 tokenId, address seller, uint256 price);
     event AssetSold(uint256 tokenId, address buyer, uint256 price);
+    event ApprovalStatus(uint256 tokenId, address seller, bool isApproved, bool isApprovedForAll);
+    event TransferAttempt(uint256 tokenId, address from, address to, uint256 price);
+    event PaymentCalculated(uint256 price, uint256 fee, uint256 sellerProceeds);
+    event PaymentTransferred(address seller, uint256 amount);
 
     /**
      * @dev Constructor initializes the marketplace with token contract and fee
@@ -73,6 +77,7 @@ contract RWAMarketplace {
      * Requirements:
      * - Listing must be active
      * - Sent value must be >= listing price
+     * - Marketplace must have approval to transfer the token
      * Effects:
      * - Transfers the token to the buyer
      * - Sends funds to the seller (minus platform fee)
@@ -82,20 +87,60 @@ contract RWAMarketplace {
         Listing storage listing = listings[tokenId];
         require(listing.isActive, "Not for sale");
         require(msg.value >= listing.price, "Insufficient funds");
+        
+        // Log approval status
+        bool isApproved = rwaToken.getApproved(tokenId) == address(this);
+        bool isApprovedForAll = rwaToken.isApprovedForAll(listing.seller, address(this));
+        emit ApprovalStatus(tokenId, listing.seller, isApproved, isApprovedForAll);
+        
+        require(isApproved || isApprovedForAll, "Marketplace not approved");
+
+        // Deactivate the listing first to prevent reentrancy
+        listing.isActive = false;
 
         // Calculate platform fee and seller proceeds
         uint256 fee = (listing.price * feePercentage) / 100;
         uint256 sellerProceeds = listing.price - fee;
+        emit PaymentCalculated(listing.price, fee, sellerProceeds);
 
-        // Transfer funds to seller
-        payable(listing.seller).transfer(sellerProceeds);
+        // Log transfer attempt
+        emit TransferAttempt(tokenId, listing.seller, msg.sender, listing.price);
         
-        // Transfer NFT to buyer
-        rwaToken.safeTransferFrom(listing.seller, msg.sender, tokenId);
+        // Transfer NFT to buyer first
+        try rwaToken.transferFrom(listing.seller, msg.sender, tokenId) {
+            // Transfer funds to seller
+            payable(listing.seller).transfer(sellerProceeds);
+            emit PaymentTransferred(listing.seller, sellerProceeds);
 
-        // Deactivate the listing
-        listing.isActive = false;
+            // Refund excess payment to buyer if any
+            uint256 excess = msg.value - listing.price;
+            if (excess > 0) {
+                payable(msg.sender).transfer(excess);
+            }
 
-        emit AssetSold(tokenId, msg.sender, listing.price);
+            emit AssetSold(tokenId, msg.sender, listing.price);
+        } catch Error(string memory reason) {
+            // Revert with the caught error
+            listing.isActive = true; // Reactivate listing if transfer fails
+            revert(string(abi.encodePacked("Transfer failed: ", reason)));
+        }
+    }
+
+    /**
+     * @dev Removes a listing when a token is burned
+     * This function should be called when a token is burned to clean up the marketplace
+     * 
+     * @param tokenId The ID of the token that was burned
+     */
+    function removeBurnedListing(uint256 tokenId) external {
+        require(address(rwaToken) != address(0), "Token contract not set");
+        
+        // Try to get the token owner - this will revert if the token is burned
+        try rwaToken.ownerOf(tokenId) returns (address) {
+            revert("Token still exists");
+        } catch {
+            // Token doesn't exist (was burned), so we can safely remove the listing
+            delete listings[tokenId];
+        }
     }
 }

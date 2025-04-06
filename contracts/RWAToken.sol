@@ -16,6 +16,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * - URI storage for metadata
  * - Access control for administrative functions
  * - Asset registry for storing detailed asset information
+ * - Token burning capability
  * 
  * @notice This contract inherits from:
  * - ERC721URIStorage: Provides NFT functionality with URI storage
@@ -45,6 +46,9 @@ contract RWAToken is ERC721URIStorage, Ownable {
         uint256 valuation;
         uint256 auditDate;
     }
+
+    // Event emitted when a token is burned
+    event AssetBurned(uint256 indexed tokenId, address indexed burner);
 
     // Mapping from token ID to asset information
     // Stores the complete asset information for each tokenized asset
@@ -148,5 +152,52 @@ contract RWAToken is ERC721URIStorage, Ownable {
      */
     function getAssetData(uint256 tokenId) public view returns (AssetInfo memory) {
         return assetRegistry[tokenId];
+    }
+
+    /**
+     * @dev Burns a token, permanently removing it from circulation
+     * Only the token owner or an approved operator can burn the token
+     * 
+     * @param tokenId The ID of the token to burn
+     * 
+     * Requirements:
+     * - The caller must be the owner of the token or approved
+     * - The token must exist
+     */
+    function burnAsset(uint256 tokenId) external {
+        // Check that the sender is either the owner or approved
+        require(ownerOf(tokenId) == msg.sender || getApproved(tokenId) == msg.sender || isApprovedForAll(ownerOf(tokenId), msg.sender), "Caller is not owner or approved");
+        
+        // Delete the asset information from the registry
+        delete assetRegistry[tokenId];
+        
+        // Burn the token using ERC721URIStorage's _burn
+        _burn(tokenId);
+        
+        // Emit the burn event
+        emit AssetBurned(tokenId, msg.sender);
+    }
+
+    /**
+     * @dev Allows contract owner to force burn a token in emergency situations
+     * This function should only be used in exceptional circumstances
+     * 
+     * @param tokenId The ID of the token to force burn
+     * 
+     * Requirements:
+     * - The caller must be the contract owner
+     * - The token must exist
+     */
+    function emergencyBurn(uint256 tokenId) external onlyOwner {
+        require(_ownerOf(tokenId) != address(0), "Token does not exist");
+        
+        // Delete the asset information from the registry
+        delete assetRegistry[tokenId];
+        
+        // Burn the token using ERC721URIStorage's _burn
+        _burn(tokenId);
+        
+        // Emit the burn event
+        emit AssetBurned(tokenId, msg.sender);
     }
 }

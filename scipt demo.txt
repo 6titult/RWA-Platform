@@ -1,0 +1,3 @@
+launch node blockchain : npx hardhat compile 
+script for deploiement : npx hardhat run scripts/fundMarketplaceAccounts.ts --network localhost
+run frontend : go to repo front (cd RWA-marketplace) -> npm run dev

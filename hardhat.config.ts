@@ -1,21 +1,14 @@
-import { HardhatUserConfig, task } from "hardhat/config";
+import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import * as dotenv from "dotenv";
 
-// Ajoutez cette section
-task("faucet", "Send ETH to an address")
-  .addParam("address", "The address to fund")
-  .setAction(async (taskArgs, hre) => {
-    const [deployer] = await hre.ethers.getSigners();
-    const amount = hre.ethers.parseEther("1000"); // 1000 ETH par défaut
-    
-    const tx = await deployer.sendTransaction({
-      to: taskArgs.address,
-      value: amount,
-    });
+dotenv.config();
 
-    console.log(`✅ ${hre.ethers.formatEther(amount)} ETH envoyés à ${taskArgs.address}`);
-    console.log(`Transaction hash: ${tx.hash}`);
-  });
+if (!process.env.PRIVATE_KEY) {
+  throw new Error("PRIVATE_KEY not found in .env file");
+}
+
+const PRIVATE_KEY: string = process.env.PRIVATE_KEY;
 
 const config: HardhatUserConfig = {
   solidity: "0.8.20",
@@ -23,11 +16,17 @@ const config: HardhatUserConfig = {
     hardhat: {
       chainId: 31337,
     },
-    localhost: {
-      url: "http://127.0.0.1:8545",
-      chainId: 31337,
-    },
+    sepolia: {
+      // Try using public RPC endpoint
+      url: "https://eth-sepolia.public.blastapi.io",
+      accounts: [PRIVATE_KEY],
+      chainId: 11155111,
+      timeout: 60000,
+    }
   },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY
+  }
 };
 
 export default config;
