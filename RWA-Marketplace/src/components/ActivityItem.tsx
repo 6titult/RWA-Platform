@@ -1,4 +1,3 @@
-import React from 'react';
 import { Badge } from 'react-bootstrap';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -96,7 +95,3 @@ export default function ActivityItem({ result }: ActivityItemProps) {
     </div>
   );
 }
-
-
-
-

@@ -10,6 +10,7 @@ A comprehensive decentralized platform for tokenizing and trading Real World Ass
 - Web3 integration (Ethers.js 6.13.5 & Web3.js 4.16.0)
 - TanStack Query 5.69.0 for data management
 - Bootstrap 5.3.3 & React Bootstrap 2.10.9 for UI
+- Service-oriented architecture with separation of concerns
 
 ### Smart Contracts
 - Solidity ^0.8.20
@@ -28,10 +29,17 @@ A comprehensive decentralized platform for tokenizing and trading Real World Ass
 │   │   │   └── ActivityItem.tsx # Transaction activity display
 │   │   ├── modules/           # Core functionality modules
 │   │   │   ├── activity/      # Activity tracking
+│   │   │   │   ├── hooks/     # React hooks for activity
+│   │   │   │   └── services/  # Activity tracking services
 │   │   │   ├── assets/        # Asset management
+│   │   │   │   ├── hooks/     # React hooks for assets
+│   │   │   │   └── services/  # Asset operation services
 │   │   │   ├── constants/     # Global constants
 │   │   │   ├── contracts/     # Contract interactions
+│   │   │   │   ├── hooks/     # Contract hooks
+│   │   │   │   └── abis.ts    # Contract ABIs
 │   │   │   └── wallet/        # Wallet connection
+│   │   │       └── hooks/     # Wallet hooks
 │   │   ├── styles/            # CSS/styling
 │   │   ├── types/             # TypeScript definitions
 │   │   ├── App.tsx            # Main component
@@ -88,9 +96,8 @@ A comprehensive decentralized platform for tokenizing and trading Real World Ass
 The main application component that orchestrates all functionality:
 - Wallet connection management
 - Asset fetching and display
-- Transaction handling for buying, listing, and minting
-- Activity tracking
 - UI state management
+- Delegates business logic to specialized services through hooks
 
 ### AssetCard.tsx
 Displays individual asset information with interactive controls:
@@ -115,17 +122,20 @@ Handles all wallet-related functionality:
 - Chain ID validation
 - Error handling
 
-### Contract Interactions
-Manages all blockchain interactions:
-- Contract initialization
-- Transaction submission
-- Event listening
-- Error handling
-- Gas optimization
+### Service Layer
+Manages business logic and blockchain interactions:
+- Asset operations (buying, listing, minting)
+- Activity tracking
+- Contract interactions
+- Error handling and validation
+- Separation of concerns
 
 ## Implementation Details
 
-### Asset Listing Process
+### Asset Operations
+Asset operations are implemented in dedicated services:
+
+#### Asset Listing Process
 The asset listing process involves a two-step transaction flow:
 1. **Approval Transaction**
    - Approve the marketplace contract to transfer the token
@@ -265,37 +275,98 @@ const connectWallet = async () => {
 };
 ```
 
-### Listing an Asset for Sale
+### Using the Asset Service
 ```typescript
-// Initialize contracts
-const { tokenContract, marketplaceContract } = await initializeContracts();
+// In a React component
+const {
+  handleBuyAsset,
+  handleListAsset,
+  handleMintAsset,
+  loading
+} = useAssetOperations({
+  signer,
+  account,
+  assets,
+  initializeContracts,
+  addActivityResult,
+  results
+});
 
-// Get the marketplace address
-const marketplaceAddress = await marketplaceContract.getAddress();
-
-// Approve the marketplace to transfer the token
-const approveTx = await tokenContract.approve(marketplaceAddress, id);
-const approveReceipt = await approveTx.wait();
-
-// Convert the price to wei
-const priceInWei = parseEther(price.toString());
-
-// List the asset on the marketplace
-const listTx = await marketplaceContract.listAsset(id, priceInWei);
-const listReceipt = await listTx.wait();
+// Call the service methods
+await handleListAsset(assetId);
+await handleBuyAsset(assetId);
+await handleMintAsset();
 ```
 
-### Buying an Asset
+### Asset Service Implementation
 ```typescript
-// Initialize contracts
-const { marketplaceContract } = await initializeContracts();
+// Create an asset service
+const assetService = createAssetService(
+  signer,
+  account,
+  assets,
+  initializeContracts,
+  activityService,
+  refreshAssets
+);
 
-// Convert the price to wei
-const priceInWei = parseEther(price.toString());
+// Service method implementation
+const handleListAsset = async (id: number): Promise<void> => {
+  try {
+    validateWalletConnection();
+    await listAsset(
+      id,
+      assets,
+      signer as Signer,
+      account as string,
+      initializeContracts,
+      activityService,
+      () => refreshAssets(true)
+    );
+  } catch (error) {
+    // Error handling
+  }
+};
+```
 
-// Call the buyAsset function with the ETH value
-const buyTx = await marketplaceContract.buyAsset(id, { value: priceInWei });
-const buyReceipt = await buyTx.wait();
+### Core Asset Operations Implementation
+```typescript
+// From assetOperations.ts
+export async function listAsset(
+  id: number,
+  assets: Asset[],
+  signer: Signer,
+  account: string,
+  initializeContracts: () => Promise<{ tokenContract: any, marketplaceContract: any }>,
+  activityService: ActivityTrackingService,
+  onSuccess: () => void
+): Promise<void> {
+  // Validation logic
+  const asset = assets.find(a => a.id === id);
+  if (!asset) {
+    throw new Error('Asset not found');
+  }
+
+  // Initialize contracts
+  const { tokenContract, marketplaceContract } = await initializeContracts();
+
+  // Get the marketplace address
+  const marketplaceAddress = await marketplaceContract.getAddress();
+
+  // Approve the marketplace to transfer the token
+  const approveTx = await tokenContract.approve(marketplaceAddress, id);
+  await approveTx.wait();
+
+  // Convert the price to wei
+  const priceInWei = parseEther(price.toString());
+
+  // List the asset on the marketplace
+  const listTx = await marketplaceContract.listAsset(id, priceInWei);
+  await listTx.wait();
+
+  // Call the success callback
+  onSuccess();
+}
 ```
 
 ## Contributing
@@ -336,7 +407,15 @@ npm run build
 
 ## Recent Updates
 
-### v1.1.0 (Latest)
+### v1.2.0 (Latest)
+- Refactored to service-oriented architecture
+- Moved business logic from App component to dedicated services
+- Created specialized services for asset operations
+- Improved separation of concerns
+- Enhanced maintainability and testability
+- Added proper error handling and validation
+
+### v1.1.0
 - Implemented full contract interactions for buying and listing assets
 - Added comprehensive activity tracking for all transactions
 - Enhanced UI with loading indicators and error handling
