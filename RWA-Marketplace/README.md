@@ -19,10 +19,21 @@ A decentralized marketplace for Real World Assets (RWA) built with React, TypeSc
 RWA-Marketplace/
 ├── src/
 │   ├── components/     # Reusable UI components
-│   ├── styles/        # CSS and styling files
-│   ├── types/         # TypeScript type definitions
-│   ├── App.tsx        # Main application component
-│   └── main.tsx       # Application entry point
+│   │   ├── common/     # Shared components (buttons, inputs, etc.)
+│   │   ├── layout/     # Layout components (header, footer, etc.)
+│   │   └── features/   # Feature-specific components
+│   ├── hooks/          # Custom React hooks
+│   ├── services/       # API and blockchain service integrations
+│   │   ├── api/        # REST API services
+│   │   └── blockchain/ # Web3 and contract interactions
+│   ├── utils/          # Utility functions and helpers
+│   ├── contexts/       # React context providers
+│   ├── pages/          # Page components
+│   ├── styles/         # CSS and styling files
+│   ├── types/          # TypeScript type definitions
+│   ├── abis/           # Contract ABIs
+│   ├── App.tsx         # Main application component
+│   └── main.tsx        # Application entry point
 ```
 
 ## Getting Started
@@ -125,4 +136,5 @@ This project is licensed under the MIT License.
 ## Support
 
 For support, please open an issue in the repository or contact the development team.
+
 

@@ -1,29 +1,22 @@
-// contracts/Marketplace.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-// Import OpenZeppelin's ERC721 interface for NFT functionality
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-/**
- * @title RWAMarketplace
- * @dev A marketplace contract for trading Real World Asset (RWA) tokens
- * Provides functionality for listing, buying, and managing tokenized assets
- */
-contract RWAMarketplace {
+contract RWAMarketplace is ReentrancyGuard, Ownable {
     /**
      * @dev Structure to store information about a listed asset
      * @param seller Address of the asset seller
-     * @param price Listed price in wei
+     * @param price Listed price in wei (ETH)
      * @param isActive Whether the listing is currently active
-     * @param priceInUSD Price in USD at the time of listing
      */
     struct Listing {
         address seller;
         uint256 price;
         bool isActive;
-        uint256 priceInUSD;
     }
 
     // Interface for the RWA token contract
@@ -54,7 +47,7 @@ contract RWAMarketplace {
      * @param _feePercentage Platform fee percentage (e.g., 2 for 2%)
      * @param _priceFeedAddress Address of the Chainlink ETH/USD price feed contract
      */
-    constructor(address _tokenAddress, uint256 _feePercentage, address _priceFeedAddress) {
+    constructor(address _tokenAddress, uint256 _feePercentage, address _priceFeedAddress) Ownable(msg.sender) {
         rwaToken = IERC721(_tokenAddress);
         feePercentage = _feePercentage;
         if (_priceFeedAddress != address(0)) {
@@ -63,38 +56,30 @@ contract RWAMarketplace {
     }
 
     // Function to update the staleness threshold (can be restricted to owner if needed)
-    function updateStalePriceThreshold(uint256 _newThreshold) external {
+    function updateStalePriceThreshold(uint256 _newThreshold) external onlyOwner {
         stalePriceThreshold = _newThreshold;
         emit StalePriceThresholdUpdated(_newThreshold);
     }
 
-    // Get latest ETH/USD price
-    function getLatestEthPrice() public view returns (int) {
-        // Get the latest round data including timestamp
+    // Get latest ETH/USD price (for frontend display purposes only)
+    function getLatestEthPrice() public view returns (int256) {
         (
-            uint80 roundId,
-            int price,
-            /* uint startedAt */,
+            ,
+            int256 price,
+            ,
             uint256 updatedAt,
-            uint80 answeredInRound
+            
         ) = priceFeed.latestRoundData();
         
-        // Ensure the price is positive
-        require(price > 0, "Negative or zero price");
+        require(price > 0, "Invalid price feed data");
+        require(block.timestamp - updatedAt <= stalePriceThreshold, "Price feed data is stale");
         
-        // Check for stale data
-        require(block.timestamp - updatedAt <= stalePriceThreshold, 
-            "Price feed data is stale. Oracle update required.");
-        
-        // Additional checks for data integrity
-        require(answeredInRound >= roundId, "Price data is from an older round");
-        
-        return price; // Price with 8 decimals
+        return price;
     }
 
-    // Convert ETH amount to USD
+    // Convert ETH amount to USD (for frontend display purposes only)
     function ethToUSD(uint256 ethAmount) public view returns (uint256) {
-        int ethPrice = getLatestEthPrice();
+        int256 ethPrice = getLatestEthPrice();
         require(ethPrice > 0, "Invalid price");
         // Calculation: (ETH amount * price) / 1e18 [adjust decimals]
         return (ethAmount * uint256(ethPrice)) / 1e10; // 1e26 / 1e8 = 1e18
@@ -115,8 +100,7 @@ contract RWAMarketplace {
         listings[tokenId] = Listing({
             seller: msg.sender,
             price: price,
-            isActive: true,
-            priceInUSD: ethToUSD(price)
+            isActive: true
         });
 
         emit AssetListed(tokenId, msg.sender, price);
@@ -134,17 +118,12 @@ contract RWAMarketplace {
      * - Sends funds to the seller (minus platform fee)
      * - Deactivates the listing
      */
-    function buyAsset(uint256 tokenId) external payable {
+    function buyAsset(uint256 tokenId) external payable nonReentrant {
         Listing storage listing = listings[tokenId];
         require(listing.isActive, "Not for sale");
-        
-        // Convert USD price to current ETH equivalent
-        int ethPrice = getLatestEthPrice();
-        require(ethPrice > 0, "Invalid ETH price");
-        
-        // Calculate required ETH amount: (USD price * 1e18) / (ETH price in USD * 1e8)
-        uint256 requiredEthAmount = (listing.priceInUSD * 1e18) / uint256(ethPrice);
-        require(msg.value >= requiredEthAmount, "Insufficient funds");
+
+        // Check that the buyer sent enough ETH to cover the listing price
+        require(msg.value >= listing.price, "Insufficient funds");
         
         // Log approval status
         bool isApproved = rwaToken.getApproved(tokenId) == address(this);
@@ -156,28 +135,30 @@ contract RWAMarketplace {
         // Deactivate the listing first to prevent reentrancy
         listing.isActive = false;
 
-        // Calculate platform fee and seller proceeds based on actual ETH received
-        uint256 actualPayment = requiredEthAmount; // Use the required amount, not the listing price
+        // Calculate platform fee and seller proceeds based on listing price
+        uint256 actualPayment = listing.price;
         uint256 fee = (actualPayment * feePercentage) / 100;
         uint256 sellerProceeds = actualPayment - fee;
         emit PaymentCalculated(actualPayment, fee, sellerProceeds);
 
         // Log transfer attempt
         emit TransferAttempt(tokenId, listing.seller, msg.sender, actualPayment);
-        
+
         // Transfer NFT to buyer first
         try rwaToken.transferFrom(listing.seller, msg.sender, tokenId) {
-            // Transfer funds to seller
-            payable(listing.seller).transfer(sellerProceeds);
-            emit PaymentTransferred(listing.seller, sellerProceeds);
+            // Transfer payment to seller after state changes
+            (bool success, ) = listing.seller.call{value: sellerProceeds}("");
+            require(success, "Transfer to seller failed");
 
-            // Refund excess payment to buyer if any
+            // Refund excess payment to buyer if they sent more than required
             uint256 excess = msg.value - actualPayment;
             if (excess > 0) {
-                payable(msg.sender).transfer(excess);
+                (bool refundSuccess, ) = msg.sender.call{value: excess}("");
+                require(refundSuccess, "Refund to buyer failed");
             }
 
-            emit AssetSold(tokenId, msg.sender, actualPayment);
+            emit PaymentTransferred(listing.seller, sellerProceeds);
+            emit AssetSold(tokenId, msg.sender, listing.price);
         } catch Error(string memory reason) {
             // Revert with the caught error
             listing.isActive = true; // Reactivate listing if transfer fails
