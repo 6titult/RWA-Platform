@@ -24,6 +24,13 @@ export default function AssetCard({ asset, onBuy, onList, isOwner, loading = fal
     maximumFractionDigits: 4
   }) : '';
 
+  // Format the USD price if it exists
+  console.log(`Asset #${asset.id} priceInUSD:`, asset.priceInUSD);
+  const formattedUSDPrice = asset.priceInUSD ? parseFloat(asset.priceInUSD).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }) : '';
+
   // Format the owner address for display
   const formatAddress = (address: string) => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
@@ -61,10 +68,23 @@ export default function AssetCard({ asset, onBuy, onList, isOwner, loading = fal
             </span>
           </p>
           {asset.listed && (
-            <p className="price-tag">
-              <strong>Price:</strong>
-              <span className="value highlight">{formattedPrice} ETH</span>
-            </p>
+            <div className="price-info">
+              <div className="eth-price">
+                <i className="bi bi-currency-ethereum me-1"></i>
+                {formattedPrice} ETH
+              </div>
+              {formattedUSDPrice ? (
+                <div className="usd-price">
+                  <i className="bi bi-currency-dollar me-1"></i>
+                  {formattedUSDPrice} USD
+                </div>
+              ) : (
+                <div className="usd-price text-muted">
+                  <i className="bi bi-currency-dollar me-1"></i>
+                  USD price unavailable
+                </div>
+              )}
+            </div>
           )}
         </div>
 

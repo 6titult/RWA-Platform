@@ -1,22 +1,18 @@
-// scripts/deploy.ts
+// scripts/deploy_amoy.ts
 
-// Import the ethers library from Hardhat for blockchain interaction
 import { ethers } from "hardhat";
 
-// Main deployment function
 async function main() {
-  // Get the first signer (deployer) from the available accounts
   const [deployer] = await ethers.getSigners();
   
-  // Display deployer information
   console.log("\n🔑 Deployment Info:");
   console.log("--------------------");
   console.log("Deploying from address:", deployer.address);
   const balance = await deployer.provider.getBalance(deployer.address);
-  console.log("Deployer balance:", ethers.formatEther(balance), "ETH");
+  console.log("Deployer balance:", ethers.formatEther(balance), "MATIC");
   console.log("--------------------\n");
 
-  // Step 1: Deploy the RWA (Real World Asset) Token contract
+  // Step 1: Deploy the RWA Token contract
   console.log("\nDeploying RWAToken...");
   const RWAToken = await ethers.getContractFactory("RWAToken");
   const token = await RWAToken.deploy("RealWorldAsset", "RWA");
@@ -24,10 +20,12 @@ async function main() {
   console.log("RWAToken deployed to:", await token.getAddress());
 
   // Step 2: Deploy the Marketplace contract
-
-  // Set Chainlink Price Feed Address (e.g., Sepolia ETH/USD)
-  const priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306"; // Sepolia ETH/USD
-  console.log("\nDeploying Marketplace...");
+  
+  // Get Chainlink Price Feed Address from environment or use default Amoy ETH/USD feed
+  const priceFeedAddress = process.env.AMOY_ETH_USD_PRICE_FEED || 
+                          "0xF0d50568e3A7e8259E16663972b11910F89BD8e7"; // Amoy ETH/USD
+  
+  console.log("\nDeploying Marketplace with price feed:", priceFeedAddress);
   const Marketplace = await ethers.getContractFactory("RWAMarketplace");
   const marketplace = await Marketplace.deploy(
     await token.getAddress(), 
@@ -46,14 +44,14 @@ async function main() {
 
   console.log("\n✅ Deployment Summary:");
   console.log("--------------------");
-  console.log("Network: Sepolia");
+  console.log("Network: Polygon Amoy");
   console.log("Deployer Address:", deployer.address);
   console.log("RWAToken Address:", await token.getAddress());
   console.log("Marketplace Address:", await marketplace.getAddress());
+  console.log("Price Feed Address:", priceFeedAddress);
   console.log("--------------------\n");
 }
 
-// Execute the deployment script and handle any errors
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

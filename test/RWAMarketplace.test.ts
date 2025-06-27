@@ -8,6 +8,8 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
+const PRICE_FEED_ADDRESS = "0x694AA1769357215DE4FAC081bf1f309aDC325306"; // Sepolia ETH/USD
+
 describe("RWAMarketplace", function () {
   // Contract instances
   let token: any, marketplace: any;
@@ -39,7 +41,7 @@ describe("RWAMarketplace", function () {
     // Step 2: Deploy Marketplace with token address and fee configuration
     console.log("\n🏪 Deploying Marketplace contract...");
     const Marketplace = await ethers.getContractFactory("RWAMarketplace");
-    marketplace = await Marketplace.deploy(token.target, FEE_PERCENTAGE);
+    marketplace = await Marketplace.deploy(token.target, FEE_PERCENTAGE, PRICE_FEED_ADDRESS);
     console.log(`   Marketplace deployed to: ${await marketplace.getAddress()}`);
     console.log(`   Platform fee set to: ${FEE_PERCENTAGE}%`);
     

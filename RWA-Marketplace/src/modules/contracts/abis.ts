@@ -23,7 +23,9 @@ export const marketplaceABI = [
   'function listings(uint256) view returns (address seller, uint256 price, bool isActive)',
   'function feePercentage() view returns (uint256)',
   'function rwaToken() view returns (address)',
+  'function ethToUSD(uint256) view returns (uint256)',
   'event ApprovalStatus(uint256 tokenId, address seller, bool isApproved, bool isApprovedForAll)',
   'event TransferAttempt(uint256 tokenId, address from, address to, uint256 price)',
   'event PaymentCalculated(uint256 price, uint256 fee, uint256 sellerProceeds)'
 ];
+

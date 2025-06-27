@@ -2,6 +2,7 @@
 declare global {
   interface Window {
     ethereum?: {
+      chainId: unknown;
       request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
       on: (event: string, callback: (...args: unknown[]) => void) => void;
       removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
@@ -20,6 +21,7 @@ export interface Asset {
   auditDate: string;
   listed: boolean;
   price?: string;
+  priceInUSD?: string; // Add USD price field
   marketplace: string;
 }
 
@@ -36,5 +38,6 @@ export interface TestResult {
   assetId?: number;
   amount?: string;
 }
+
 
 

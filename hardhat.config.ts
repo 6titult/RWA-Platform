@@ -17,15 +17,34 @@ const config: HardhatUserConfig = {
       chainId: 31337,
     },
     sepolia: {
-      // Try using public RPC endpoint
       url: "https://eth-sepolia.public.blastapi.io",
       accounts: [PRIVATE_KEY],
       chainId: 11155111,
       timeout: 60000,
+    },
+    amoy: {
+      url: "https://rpc-amoy.polygon.technology",
+      accounts: [PRIVATE_KEY],
+      chainId: 80002,
+      timeout: 60000,
+      gasPrice: 35000000000, // 35 Gwei
     }
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY
+    apiKey: {
+      sepolia: process.env.ETHERSCAN_API_KEY || "",
+      amoy: process.env.POLYGONSCAN_API_KEY || ""
+    },
+    customChains: [
+      {
+        network: "amoy",
+        chainId: 80002,
+        urls: {
+          apiURL: "https://api-amoy.polygonscan.com/api",
+          browserURL: "https://amoy.polygonscan.com"
+        }
+      }
+    ]
   }
 };
 

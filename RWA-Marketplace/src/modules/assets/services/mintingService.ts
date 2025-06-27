@@ -17,7 +17,7 @@ import { ActivityTrackingService } from '../../activity/services/activityTrackin
  * @param onSuccess Callback function to execute on successful minting
  */
 export async function mintAsset(
-  _signer: Signer, // Required for type consistency, not used directly
+  _signer: Signer,
   account: string,
   initializeContracts: () => Promise<{ tokenContract: unknown, marketplaceContract: unknown }>,
   activityService: ActivityTrackingService,
@@ -33,45 +33,98 @@ export async function mintAsset(
     timestamp: Date.now()
   });
 
-  // Initialize contracts
-  const { tokenContract } = await initializeContracts();
+  try {
+    // Initialize contracts
+    const { tokenContract } = await initializeContracts();
+    
+    // Log contract address for debugging
+    console.log('Token contract address:', (tokenContract as Contract).target);
+    
+    // Check if the connected account is the contract owner
+    try {
+      const owner = await (tokenContract as Contract).owner();
+      console.log('Contract owner:', owner);
+      console.log('Connected account:', account);
+      
+      if (owner.toLowerCase() !== account.toLowerCase()) {
+        throw new Error('Only the contract owner can mint new assets');
+      }
+    } catch (error) {
+      console.error('Error checking ownership:', error);
+      throw new Error('Failed to verify ownership: ' + (error instanceof Error ? error.message : String(error)));
+    }
 
-  // Generate random test data for the asset
-  const metadataURI = `ipfs://QmTest${Math.floor(Math.random() * 1000000)}`;
-  const legalDocHash = `LEGAL${Math.floor(Math.random() * 1000000)}`;
-  const valuation = Math.floor(Math.random() * 10) + 1; // Random valuation between 1-10 ETH
+    // Generate random test data for the asset
+    const metadataURI = `ipfs://QmTest${Math.floor(Math.random() * 1000000)}`;
+    const legalDocHash = `LEGAL${Math.floor(Math.random() * 1000000)}`;
+    const valuation = Math.floor(Math.random() * 10) + 1; // Random valuation between 1-10 ETH
 
-  // Call the mintAsset function on the token contract
-  const tx = await (tokenContract as Contract).mintAsset(
-    account,
-    metadataURI,
-    legalDocHash,
-    parseEther(valuation.toString())
-  );
+    console.log('Minting with parameters:', {
+      to: account,
+      metadataURI,
+      legalDocHash,
+      valuation: valuation.toString() + ' ETH'
+    });
 
-  // Update activity with waiting status
-  activityService.addActivityResult({
-    action: 'mint',
-    status: 'waiting_confirmation',
-    txHash: tx.hash,
-    details: `Minting asset with valuation ${valuation} ETH...`,
-    timestamp: Date.now()
-  });
+    // Call the mintAsset function on the token contract with gas limit
+    const tx = await (tokenContract as Contract).mintAsset(
+      account,
+      metadataURI,
+      legalDocHash,
+      parseEther(valuation.toString()),
+      { gasLimit: 500000 } // Add explicit gas limit
+    );
 
-  // Wait for transaction confirmation
-  const receipt = await tx.wait();
+    // Update activity with waiting status
+    activityService.addActivityResult({
+      action: 'mint',
+      status: 'waiting_confirmation',
+      txHash: tx.hash,
+      details: `Minting asset with valuation ${valuation} ETH...`,
+      timestamp: Date.now()
+    });
 
-  // Update activity with success status
-  activityService.addActivityResult({
-    action: 'mint',
-    status: 'success',
-    txHash: tx.hash,
-    details: `Successfully minted new asset with valuation ${valuation} ETH`,
-    timestamp: Date.now()
-  });
+    // Wait for transaction confirmation
+    const receipt = await tx.wait();
 
-  console.log('Minting successful:', receipt);
+    // Update activity with success status
+    activityService.addActivityResult({
+      action: 'mint',
+      status: 'success',
+      txHash: tx.hash,
+      details: `Successfully minted new asset with valuation ${valuation} ETH`,
+      timestamp: Date.now()
+    });
 
-  // Call the success callback
-  onSuccess();
+    console.log('Minting successful:', receipt);
+
+    // Call the success callback
+    onSuccess();
+  } catch (error) {
+    console.error('Detailed minting error:', error);
+    
+    // More descriptive error message
+    let errorMessage = 'Unknown error';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      // Check for common contract errors
+      if (errorMessage.includes('execution reverted')) {
+        errorMessage = 'Contract execution reverted. You may not have permission to mint assets.';
+      } else if (errorMessage.includes('insufficient funds')) {
+        errorMessage = 'Insufficient funds for gas * price + value. Please add more MATIC to your wallet.';
+      }
+    }
+    
+    // Update activity with error status
+    activityService.addActivityResult({
+      action: 'mint',
+      status: 'error',
+      error: errorMessage,
+      details: 'Failed to mint asset. See console for details.',
+      timestamp: Date.now()
+    });
+    
+    throw new Error('Minting failed: ' + errorMessage);
+  }
 }
+

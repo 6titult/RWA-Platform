@@ -4,7 +4,8 @@
  */
 import { Contract, Signer } from 'ethers';
 import { TOKEN_ADDRESS, MARKETPLACE_ADDRESS } from '../../constants';
-import { tokenABI, marketplaceABI } from '../abis';
+import tokenABI from '../../../abis/RWAToken.sol/RWAToken.json';
+import marketplaceABI from '../../../abis/RWAMarketplace.sol/RWAMarketplace.json';
 
 export const useContracts = (signer: unknown) => {
   /**
@@ -20,22 +21,34 @@ export const useContracts = (signer: unknown) => {
       // Create contract instances with the provided signer
       const tokenContract = new Contract(
         TOKEN_ADDRESS,
-        tokenABI,
+        tokenABI.abi,
         signer as Signer
       );
 
       const marketplaceContract = new Contract(
         MARKETPLACE_ADDRESS,
-        marketplaceABI,
+        marketplaceABI.abi,
         signer as Signer
       );
+
+      // Verify contracts are accessible
+      try {
+        // Simple read-only calls to verify contracts are working
+        await tokenContract.name();
+        await marketplaceContract.feePercentage();
+        console.log("Contracts initialized and verified successfully");
+      } catch (error) {
+        console.warn("Contract verification failed, but continuing:", error);
+        // Continue anyway - some functions might still work
+      }
 
       return { tokenContract, marketplaceContract };
     } catch (error) {
       console.error('Error initializing contracts:', error);
-      throw error;
+      throw new Error(`Failed to initialize contracts: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   return { initializeContracts };
 };
+
