@@ -20493,7 +20493,7 @@ _connect2 = new WeakMap();
 _websocket = new WeakMap();
 
 // node_modules/ethers/lib.esm/providers/provider-infura.js
-var defaultProjectId = "84842078b09946638c03157f83405213";
+var defaultProjectId = "";
 function getHost4(name) {
   switch (name) {
     case "mainnet":
